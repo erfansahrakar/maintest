@@ -1,20 +1,100 @@
 """
 مدیریت دیتابیس با SQLite
-🆕 اصلاح شده - مرحله 0: رفع باگ‌ها
-- باگ 1: ذخیره صحیح channel_message_id
-- باگ 3: پشتیبانی از فروش بر اساس عدد (نه پک)
+🔒 نسخه بهبود یافته با امنیت بالا
+✅ Transaction Management + Connection Pool + Error Handling
+🔴 جایگزین database.py قبلی می‌شود
 """
 import sqlite3
 import json
+import threading
 from datetime import datetime
+from typing import Optional, List
+from contextlib import contextmanager
 from config import DATABASE_NAME
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class DatabaseConnectionPool:
+    """مدیریت Connection Pool برای دیتابیس"""
+    
+    def __init__(self, database_name: str):
+        self.database_name = database_name
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        
+    def get_connection(self) -> sqlite3.Connection:
+        """دریافت connection برای thread فعلی"""
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            try:
+                conn = sqlite3.connect(
+                    self.database_name,
+                    timeout=30.0,
+                    isolation_level=None
+                )
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys = ON")
+                self._local.connection = conn
+                logger.debug(f"Connection created for thread {threading.current_thread().name}")
+            except sqlite3.Error as e:
+                logger.error(f"Failed to create connection: {e}")
+                raise
+        
+        return self._local.connection
+    
+    def close_connection(self):
+        """بستن connection thread فعلی"""
+        if hasattr(self._local, 'connection') and self._local.connection is not None:
+            try:
+                self._local.connection.close()
+                logger.debug(f"Connection closed for thread {threading.current_thread().name}")
+            except sqlite3.Error as e:
+                logger.error(f"Failed to close connection: {e}")
+            finally:
+                self._local.connection = None
+
+
+class DatabaseError(Exception):
+    """خطای عملیات دیتابیس"""
+    pass
 
 
 class Database:
+    """کلاس مدیریت دیتابیس با امنیت بالا"""
+    
     def __init__(self):
         self.conn = sqlite3.connect(DATABASE_NAME, check_same_thread=False)
         self.cursor = self.conn.cursor()
+        self.pool = DatabaseConnectionPool(DATABASE_NAME)
         self.create_tables()
+    
+    def _get_conn(self) -> sqlite3.Connection:
+        """دریافت connection"""
+        return self.pool.get_connection()
+    
+    @contextmanager
+    def transaction(self):
+        """Context Manager برای تراکنش‌های دیتابیس"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("BEGIN")
+            yield cursor
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            logger.error(f"IntegrityError: {e}")
+            raise DatabaseError(f"خطای یکپارچگی داده: {e}")
+        except sqlite3.OperationalError as e:
+            conn.rollback()
+            logger.error(f"OperationalError: {e}")
+            raise DatabaseError(f"خطای عملیاتی: {e}")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Transaction failed: {e}")
+            raise DatabaseError(f"خطای تراکنش: {e}")
     
     def create_tables(self):
         """ایجاد جداول دیتابیس"""
@@ -122,10 +202,32 @@ class Database:
         """)
         
         self.conn.commit()
+        self._create_indexes()
+    
+    def _create_indexes(self):
+        """ایجاد Index ها برای بهبود سرعت"""
+        
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
+            "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
+        ]
+        
+        for index_sql in indexes:
+            try:
+                self.cursor.execute(index_sql)
+            except sqlite3.Error as e:
+                logger.warning(f"Failed to create index: {e}")
+        
+        self.conn.commit()
     
     # ==================== محصولات ====================
     
-    def add_product(self, name, description, photo_id):
+    def add_product(self, name: str, description: str, photo_id: str):
         """افزودن محصول جدید"""
         self.cursor.execute(
             "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
@@ -144,7 +246,7 @@ class Database:
         self.cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
-    def update_product_name(self, product_id, name):
+    def update_product_name(self, product_id: int, name: str):
         """ویرایش نام محصول"""
         self.cursor.execute(
             "UPDATE products SET name = ? WHERE id = ?",
@@ -152,7 +254,7 @@ class Database:
         )
         self.conn.commit()
     
-    def update_product_description(self, product_id, description):
+    def update_product_description(self, product_id: int, description: str):
         """ویرایش توضیحات محصول"""
         self.cursor.execute(
             "UPDATE products SET description = ? WHERE id = ?",
@@ -160,7 +262,7 @@ class Database:
         )
         self.conn.commit()
     
-    def update_product_photo(self, product_id, photo_id):
+    def update_product_photo(self, product_id: int, photo_id: str):
         """ویرایش عکس محصول"""
         self.cursor.execute(
             "UPDATE products SET photo_id = ? WHERE id = ?",
@@ -168,8 +270,8 @@ class Database:
         )
         self.conn.commit()
     
-    def save_channel_message_id(self, product_id, message_id):
-        """🔴 FIX باگ 1: ذخیره صحیح شناسه پیام کانال"""
+    def save_channel_message_id(self, product_id: int, message_id: int) -> bool:
+        """ذخیره شناسه پیام کانال"""
         try:
             self.cursor.execute(
                 "UPDATE products SET channel_message_id = ? WHERE id = ?",
@@ -190,7 +292,7 @@ class Database:
             print(f"❌ باگ 1: خطا در save_channel_message_id: {e}")
             return False
     
-    def delete_product(self, product_id):
+    def delete_product(self, product_id: int):
         """حذف محصول"""
         self.cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
         self.cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
@@ -198,7 +300,7 @@ class Database:
     
     # ==================== پک‌ها ====================
     
-    def add_pack(self, product_id, name, quantity, price):
+    def add_pack(self, product_id: int, name: str, quantity: int, price: float):
         """افزودن پک به محصول"""
         self.cursor.execute(
             "INSERT INTO packs (product_id, name, quantity, price) VALUES (?, ?, ?, ?)",
@@ -207,17 +309,17 @@ class Database:
         self.conn.commit()
         return self.cursor.lastrowid
     
-    def get_packs(self, product_id):
+    def get_packs(self, product_id: int):
         """دریافت پک‌های یک محصول"""
         self.cursor.execute("SELECT * FROM packs WHERE product_id = ?", (product_id,))
         return self.cursor.fetchall()
     
-    def get_pack(self, pack_id):
+    def get_pack(self, pack_id: int):
         """دریافت اطلاعات یک پک"""
         self.cursor.execute("SELECT * FROM packs WHERE id = ?", (pack_id,))
         return self.cursor.fetchone()
     
-    def update_pack(self, pack_id, name, quantity, price):
+    def update_pack(self, pack_id: int, name: str, quantity: int, price: float):
         """ویرایش پک"""
         self.cursor.execute(
             "UPDATE packs SET name = ?, quantity = ?, price = ? WHERE id = ?",
@@ -225,14 +327,14 @@ class Database:
         )
         self.conn.commit()
     
-    def delete_pack(self, pack_id):
+    def delete_pack(self, pack_id: int):
         """حذف پک"""
         self.cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
         self.conn.commit()
     
     # ==================== کاربران ====================
     
-    def add_user(self, user_id, username, first_name):
+    def add_user(self, user_id: int, username: Optional[str], first_name: str):
         """افزودن کاربر جدید"""
         self.cursor.execute(
             "INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
@@ -240,7 +342,7 @@ class Database:
         )
         self.conn.commit()
     
-    def update_user_info(self, user_id, phone=None, landline_phone=None, address=None, full_name=None, shop_name=None):
+    def update_user_info(self, user_id: int, phone=None, landline_phone=None, address=None, full_name=None, shop_name=None):
         """بروزرسانی اطلاعات کاربر"""
         if phone:
             self.cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
@@ -254,7 +356,7 @@ class Database:
             self.cursor.execute("UPDATE users SET shop_name = ? WHERE user_id = ?", (shop_name, user_id))
         self.conn.commit()
     
-    def get_user(self, user_id):
+    def get_user(self, user_id: int):
         """دریافت اطلاعات کاربر"""
         self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         return self.cursor.fetchone()
@@ -263,32 +365,22 @@ class Database:
         """دریافت همه کاربران"""
         self.cursor.execute("SELECT * FROM users")
         return self.cursor.fetchall()
-    
-    # ==================== سبد خرید ====================
-    
-    def add_to_cart(self, user_id, product_id, pack_id, quantity=1):
-        """🔴 FIX باگ 3: افزودن به سبد بر اساس عدد نه پک
         
-        مثال:
-        - پک 6 تایی = 6 عدد
-        - کاربر 1 بار کلیک = 6 عدد اضافه میشه
-        - quantity اینجا = تعداد عدد است
-        """
+        # ==================== سبد خرید ====================
+    
+    def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
+        """افزودن به سبد خرید"""
         self.cursor.execute(
             "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
             (user_id, product_id, pack_id)
         )
         existing = self.cursor.fetchone()
         
-        # دریافت تعداد توی پک (مثلاً 6)
         pack = self.get_pack(pack_id)
         if not pack:
             return
         
-        pack_quantity = pack[3]  # تعداد در پک
-        
-        # 🔴 FIX: quantity حالا بر اساس عدد است
-        # هر بار کلیک = pack_quantity عدد
+        pack_quantity = pack[3]
         actual_quantity = quantity * pack_quantity
         
         if existing:
@@ -304,8 +396,8 @@ class Database:
             )
         self.conn.commit()
     
-    def get_cart(self, user_id):
-        """🔴 FIX باگ 3: دریافت سبد - quantity حالا عدد است"""
+    def get_cart(self, user_id: int):
+        """دریافت سبد خرید"""
         self.cursor.execute("""
             SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
             FROM cart c
@@ -315,33 +407,22 @@ class Database:
         """, (user_id,))
         return self.cursor.fetchall()
     
-    def clear_cart(self, user_id):
+    def clear_cart(self, user_id: int):
         """خالی کردن سبد خرید"""
         self.cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
         self.conn.commit()
     
-    def remove_from_cart(self, cart_id):
+    def remove_from_cart(self, cart_id: int):
         """حذف آیتم از سبد"""
         self.cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
         self.conn.commit()
     
     # ==================== سفارشات ====================
     
-    def create_order(self, user_id, items, total_price, discount_amount=0, final_price=None, discount_code=None):
-        """🔴 FIX باگ 3: ایجاد سفارش با unit_price و quantity بر اساس عدد
-        
-        فرمت items:
-        [
-            {
-                'product': 'نام محصول',
-                'pack': 'پک 6 تایی',
-                'pack_quantity': 6,  # تعداد توی پک
-                'unit_price': 5000,  # قیمت هر عدد
-                'quantity': 12,  # تعداد عدد
-                'price': 60000  # قیمت کل این آیتم
-            }
-        ]
-        """
+    def create_order(self, user_id: int, items: List[dict], total_price: float, 
+                    discount_amount: float = 0, final_price: Optional[float] = None, 
+                    discount_code: Optional[str] = None):
+        """ایجاد سفارش جدید"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
@@ -353,12 +434,12 @@ class Database:
         self.conn.commit()
         return self.cursor.lastrowid
     
-    def get_order(self, order_id):
+    def get_order(self, order_id: int):
         """دریافت اطلاعات سفارش"""
         self.cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
         return self.cursor.fetchone()
     
-    def update_order_status(self, order_id, status):
+    def update_order_status(self, order_id: int, status: str):
         """بروزرسانی وضعیت سفارش"""
         self.cursor.execute(
             "UPDATE orders SET status = ? WHERE id = ?",
@@ -366,7 +447,7 @@ class Database:
         )
         self.conn.commit()
     
-    def add_receipt(self, order_id, photo_id):
+    def add_receipt(self, order_id: int, photo_id: str):
         """افزودن رسید به سفارش"""
         self.cursor.execute(
             "UPDATE orders SET receipt_photo = ?, status = 'receipt_sent' WHERE id = ?",
@@ -374,7 +455,7 @@ class Database:
         )
         self.conn.commit()
     
-    def update_shipping_method(self, order_id, method):
+    def update_shipping_method(self, order_id: int, method: str):
         """بروزرسانی نحوه ارسال"""
         self.cursor.execute(
             "UPDATE orders SET shipping_method = ? WHERE id = ?",
@@ -392,14 +473,16 @@ class Database:
         self.cursor.execute("SELECT * FROM orders WHERE status = 'waiting_payment' ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
-    def get_user_orders(self, user_id):
+    def get_user_orders(self, user_id: int):
         """دریافت سفارشات یک کاربر"""
         self.cursor.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         return self.cursor.fetchall()
     
     # ==================== تخفیف ====================
     
-    def create_discount(self, code, type, value, min_purchase=0, max_discount=None, usage_limit=None, start_date=None, end_date=None):
+    def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, 
+                       max_discount: Optional[float] = None, usage_limit: Optional[int] = None, 
+                       start_date: Optional[str] = None, end_date: Optional[str] = None):
         """ایجاد کد تخفیف"""
         self.cursor.execute(
             "INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -408,7 +491,7 @@ class Database:
         self.conn.commit()
         return self.cursor.lastrowid
     
-    def get_discount(self, code):
+    def get_discount(self, code: str):
         """دریافت اطلاعات کد تخفیف"""
         self.cursor.execute("SELECT * FROM discount_codes WHERE code = ? AND is_active = 1", (code,))
         return self.cursor.fetchone()
@@ -418,7 +501,7 @@ class Database:
         self.cursor.execute("SELECT * FROM discount_codes ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
-    def use_discount(self, user_id, discount_code, order_id):
+    def use_discount(self, user_id: int, discount_code: str, order_id: int):
         """ثبت استفاده از کد تخفیف"""
         self.cursor.execute(
             "INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)",
@@ -430,7 +513,7 @@ class Database:
         )
         self.conn.commit()
     
-    def toggle_discount(self, discount_id):
+    def toggle_discount(self, discount_id: int):
         """فعال/غیرفعال کردن کد تخفیف"""
         self.cursor.execute(
             "UPDATE discount_codes SET is_active = 1 - is_active WHERE id = ?",
@@ -438,7 +521,7 @@ class Database:
         )
         self.conn.commit()
     
-    def delete_discount(self, discount_id):
+    def delete_discount(self, discount_id: int):
         """حذف کد تخفیف"""
         self.cursor.execute("DELETE FROM discount_codes WHERE id = ?", (discount_id,))
         self.conn.commit()
@@ -514,3 +597,4 @@ class Database:
     def close(self):
         """بستن اتصال"""
         self.conn.close()
+        self.pool.close_connection()

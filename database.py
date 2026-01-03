@@ -1,5 +1,8 @@
 """
 مدیریت دیتابیس با SQLite
+🆕 اصلاح شده - مرحله 0: رفع باگ‌ها
+- باگ 1: ذخیره صحیح channel_message_id
+- باگ 3: پشتیبانی از فروش بر اساس عدد (نه پک)
 """
 import sqlite3
 import json
@@ -166,12 +169,26 @@ class Database:
         self.conn.commit()
     
     def save_channel_message_id(self, product_id, message_id):
-        """ذخیره شناسه پیام کانال"""
-        self.cursor.execute(
-            "UPDATE products SET channel_message_id = ? WHERE id = ?",
-            (message_id, product_id)
-        )
-        self.conn.commit()
+        """🔴 FIX باگ 1: ذخیره صحیح شناسه پیام کانال"""
+        try:
+            self.cursor.execute(
+                "UPDATE products SET channel_message_id = ? WHERE id = ?",
+                (message_id, product_id)
+            )
+            self.conn.commit()
+            
+            # تایید ذخیره
+            self.cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
+            saved_id = self.cursor.fetchone()
+            if saved_id and saved_id[0] == message_id:
+                print(f"✅ باگ 1 FIX: channel_message_id={message_id} ذخیره شد برای product={product_id}")
+                return True
+            else:
+                print(f"❌ باگ 1: خطا در ذخیره channel_message_id")
+                return False
+        except Exception as e:
+            print(f"❌ باگ 1: خطا در save_channel_message_id: {e}")
+            return False
     
     def delete_product(self, product_id):
         """حذف محصول"""
@@ -250,15 +267,32 @@ class Database:
     # ==================== سبد خرید ====================
     
     def add_to_cart(self, user_id, product_id, pack_id, quantity=1):
-        """افزودن به سبد خرید"""
+        """🔴 FIX باگ 3: افزودن به سبد بر اساس عدد نه پک
+        
+        مثال:
+        - پک 6 تایی = 6 عدد
+        - کاربر 1 بار کلیک = 6 عدد اضافه میشه
+        - quantity اینجا = تعداد عدد است
+        """
         self.cursor.execute(
             "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
             (user_id, product_id, pack_id)
         )
         existing = self.cursor.fetchone()
         
+        # دریافت تعداد توی پک (مثلاً 6)
+        pack = self.get_pack(pack_id)
+        if not pack:
+            return
+        
+        pack_quantity = pack[3]  # تعداد در پک
+        
+        # 🔴 FIX: quantity حالا بر اساس عدد است
+        # هر بار کلیک = pack_quantity عدد
+        actual_quantity = quantity * pack_quantity
+        
         if existing:
-            new_quantity = existing[1] + quantity
+            new_quantity = existing[1] + actual_quantity
             self.cursor.execute(
                 "UPDATE cart SET quantity = ? WHERE id = ?",
                 (new_quantity, existing[0])
@@ -266,12 +300,12 @@ class Database:
         else:
             self.cursor.execute(
                 "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
-                (user_id, product_id, pack_id, quantity)
+                (user_id, product_id, pack_id, actual_quantity)
             )
         self.conn.commit()
     
     def get_cart(self, user_id):
-        """دریافت سبد خرید کاربر"""
+        """🔴 FIX باگ 3: دریافت سبد - quantity حالا عدد است"""
         self.cursor.execute("""
             SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
             FROM cart c
@@ -294,7 +328,20 @@ class Database:
     # ==================== سفارشات ====================
     
     def create_order(self, user_id, items, total_price, discount_amount=0, final_price=None, discount_code=None):
-        """ایجاد سفارش جدید"""
+        """🔴 FIX باگ 3: ایجاد سفارش با unit_price و quantity بر اساس عدد
+        
+        فرمت items:
+        [
+            {
+                'product': 'نام محصول',
+                'pack': 'پک 6 تایی',
+                'pack_quantity': 6,  # تعداد توی پک
+                'unit_price': 5000,  # قیمت هر عدد
+                'quantity': 12,  # تعداد عدد
+                'price': 60000  # قیمت کل این آیتم
+            }
+        ]
+        """
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount

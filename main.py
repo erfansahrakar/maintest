@@ -128,6 +128,13 @@ def main():
         delete_pack_confirm, edit_in_channel, back_to_product
     )
     
+    # 🆕 Import توابع admin_pack_management (مدیریت پک‌ها)
+    from handlers.admin_pack_management import (
+        manage_packs_menu,
+        confirm_delete_pack,
+        delete_pack_final
+    )
+    
     # Import توابع user
     from handlers.user import (
         finalize_order_start, full_name_received, address_text_received, 
@@ -358,6 +365,11 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_product, pattern="^delete_product:"))
     application.add_handler(CallbackQueryHandler(delete_pack_confirm, pattern="^delete_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern="^back_to_product:"))
+    
+    # 🆕 مدیریت پک‌ها (handler های جدید)
+    application.add_handler(CallbackQueryHandler(manage_packs_menu, pattern="^manage_packs:"))
+    application.add_handler(CallbackQueryHandler(confirm_delete_pack, pattern="^confirm_delete_pack:"))
+    application.add_handler(CallbackQueryHandler(delete_pack_final, pattern="^delete_pack_final:"))
     
     # سبد خرید
     application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))

@@ -419,13 +419,6 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
     # ثبت سفارش اولیه
     await create_order_from_message(update, context)
     return ConversationHandler.END
-        
-        return ConversationHandler.END
-    
-    # ثبت سفارش اولیه
-    await create_order_from_message(update, context)
-    return ConversationHandler.END
-
 
 async def confirm_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تایید اطلاعات قبلی کاربر"""

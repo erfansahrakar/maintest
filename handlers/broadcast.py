@@ -1,5 +1,6 @@
 """
 سیستم پیام‌رسانی همگانی
+🆕 اصلاح شده: حالا درست کار می‌کنه!
 """
 import asyncio
 from telegram import Update
@@ -14,11 +15,18 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
     
+    # 🆕 پاک کردن پیام قبلی اگه وجود داشته باشه
+    context.user_data.pop('broadcast_type', None)
+    context.user_data.pop('broadcast_content', None)
+    context.user_data.pop('broadcast_caption', None)
+    
     await update.message.reply_text(
         "📢 **پیام‌رسانی همگانی**\n\n"
         "پیام خود را برای ارسال به همه کاربران وارد کنید:\n\n"
-        "⚠️ می‌توانید از فرمت Markdown استفاده کنید.\n"
-        "⚠️ می‌توانید عکس، ویدیو یا متن ارسال کنید.",
+        "✅ می‌توانید متن بفرستید\n"
+        "✅ می‌توانید عکس + توضیحات بفرستید\n"
+        "✅ می‌توانید ویدیو + توضیحات بفرستید\n\n"
+        "⚠️ از فرمت Markdown هم می‌توانید استفاده کنید.",
         parse_mode='Markdown',
         reply_markup=cancel_keyboard()
     )
@@ -30,6 +38,7 @@ async def broadcast_message_received(update: Update, context: ContextTypes.DEFAU
     """دریافت پیام برای ارسال"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
+        context.user_data.clear()
         return ConversationHandler.END
     
     # ذخیره پیام
@@ -40,15 +49,19 @@ async def broadcast_message_received(update: Update, context: ContextTypes.DEFAU
     elif update.message.photo:
         context.user_data['broadcast_type'] = 'photo'
         context.user_data['broadcast_content'] = update.message.photo[-1].file_id
-        context.user_data['broadcast_caption'] = update.message.caption
+        context.user_data['broadcast_caption'] = update.message.caption if update.message.caption else ""
         preview = f"📷 عکس" + (f"\n{update.message.caption[:50]}..." if update.message.caption else "")
     elif update.message.video:
         context.user_data['broadcast_type'] = 'video'
         context.user_data['broadcast_content'] = update.message.video.file_id
-        context.user_data['broadcast_caption'] = update.message.caption
+        context.user_data['broadcast_caption'] = update.message.caption if update.message.caption else ""
         preview = f"🎥 ویدیو" + (f"\n{update.message.caption[:50]}..." if update.message.caption else "")
     else:
-        await update.message.reply_text("❌ فقط متن، عکس یا ویدیو پشتیبانی می‌شود!")
+        await update.message.reply_text(
+            "❌ فقط متن، عکس یا ویدیو پشتیبانی می‌شود!\n"
+            "لطفاً دوباره ارسال کنید:",
+            reply_markup=cancel_keyboard()
+        )
         return BROADCAST_MESSAGE
     
     # تعداد کاربران
@@ -78,7 +91,7 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     broadcast_type = context.user_data.get('broadcast_type')
     broadcast_content = context.user_data.get('broadcast_content')
-    broadcast_caption = context.user_data.get('broadcast_caption')
+    broadcast_caption = context.user_data.get('broadcast_caption', '')
     
     if not broadcast_type or not broadcast_content:
         await query.edit_message_text("❌ خطا! پیامی یافت نشد.")
@@ -107,21 +120,22 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_photo(
                     user_id,
                     broadcast_content,
-                    caption=broadcast_caption,
-                    parse_mode='Markdown'
+                    caption=broadcast_caption if broadcast_caption else None,
+                    parse_mode='Markdown' if broadcast_caption else None
                 )
             elif broadcast_type == 'video':
                 await context.bot.send_video(
                     user_id,
                     broadcast_content,
-                    caption=broadcast_caption,
-                    parse_mode='Markdown'
+                    caption=broadcast_caption if broadcast_caption else None,
+                    parse_mode='Markdown' if broadcast_caption else None
                 )
             
             success_count += 1
             
         except Exception as e:
-            if "bot was blocked" in str(e).lower() or "user is deactivated" in str(e).lower():
+            error_msg = str(e).lower()
+            if "bot was blocked" in error_msg or "user is deactivated" in error_msg or "chat not found" in error_msg:
                 blocked_count += 1
             else:
                 failed_count += 1
@@ -132,7 +146,7 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # گزارش نهایی
     report = "✅ **ارسال پیام همگانی تکمیل شد!**\n\n"
     report += f"✅ موفق: {success_count}\n"
-    report += f"🚫 بلاک شده: {blocked_count}\n"
+    report += f"🚫 بلاک شده/غیرفعال: {blocked_count}\n"
     report += f"❌ خطا: {failed_count}\n"
     report += f"📊 کل: {len(users)}"
     
@@ -151,9 +165,6 @@ async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("لغو شد")
     
-    await query.edit_message_text(
-        "❌ ارسال پیام همگانی لغو شد.",
-        reply_markup=admin_main_keyboard()
-    )
+    await query.edit_message_text("❌ ارسال پیام همگانی لغو شد.")
     
     context.user_data.clear()

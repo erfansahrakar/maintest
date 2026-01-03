@@ -5,6 +5,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, MESSAGES, CHANNEL_USERNAME
+from validators import Validators
 from states import PRODUCT_NAME, PRODUCT_DESC, PRODUCT_PHOTO, PACK_NAME, PACK_QUANTITY, PACK_PRICE
 from keyboards import (
     admin_main_keyboard, 
@@ -43,12 +44,24 @@ async def add_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def product_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت نام محصول"""
+    """دریافت نام محصول - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    context.user_data['product_name'] = update.message.text
+    name = update.message.text
+    
+    # 🔒 اعتبارسنجی نام محصول
+    is_valid, error_msg, cleaned_name = Validators.validate_product_name(name)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return PRODUCT_NAME  # دوباره بپرس
+    
+    context.user_data['product_name'] = cleaned_name
     await update.message.reply_text("📄 توضیحات محصول را وارد کنید:")
     return PRODUCT_DESC
 
@@ -154,62 +167,86 @@ async def add_pack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def pack_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت نام پک"""
+    """دریافت نام پک - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    context.user_data['pack_name'] = update.message.text
+    name = update.message.text
+    
+    # 🔒 اعتبارسنجی نام پک
+    is_valid, error_msg, cleaned_name = Validators.validate_pack_name(name)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return PACK_NAME  # دوباره بپرس
+    
+    context.user_data['pack_name'] = cleaned_name
     await update.message.reply_text("🔢 تعداد در پک را وارد کنید (مثال: ۶):")
     return PACK_QUANTITY
 
 
 async def pack_quantity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت تعداد پک"""
+    """دریافت تعداد پک - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    try:
-        quantity = int(update.message.text)
-        context.user_data['pack_quantity'] = quantity
-        await update.message.reply_text("💰 قیمت پک را وارد کنید (به تومان):")
-        return PACK_PRICE
-    except ValueError:
-        await update.message.reply_text("❌ لطفاً یک عدد وارد کنید!")
-        return PACK_QUANTITY
+    quantity_str = update.message.text
+    
+    # 🔒 اعتبارسنجی تعداد
+    is_valid, error_msg, quantity = Validators.validate_quantity(quantity_str, min_value=1, max_value=1000)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return PACK_QUANTITY  # دوباره بپرس
+    
+    context.user_data['pack_quantity'] = quantity
+    await update.message.reply_text("💰 قیمت پک را وارد کنید (به تومان):")
+    return PACK_PRICE
 
 
 async def pack_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت قیمت پک"""
+    """دریافت قیمت پک - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    try:
-        price = float(update.message.text.replace(',', ''))
-        
-        # ذخیره در دیتابیس
-        db = context.bot_data['db']
-        db.add_pack(
-            context.user_data['adding_pack_to'],
-            context.user_data['pack_name'],
-            context.user_data['pack_quantity'],
-            price
-        )
-        
+    price_str = update.message.text
+    
+    # 🔒 اعتبارسنجی قیمت
+    is_valid, error_msg, price = Validators.validate_price(price_str)
+    
+    if not is_valid:
         await update.message.reply_text(
-            MESSAGES["pack_added"],
-            reply_markup=admin_main_keyboard()
+            error_msg,
+            reply_markup=cancel_keyboard()
         )
-        
-        # پاک کردن داده‌های موقت
-        context.user_data.clear()
-        return ConversationHandler.END
-        
-    except ValueError:
-        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
-        return PACK_PRICE
+        return PACK_PRICE  # دوباره بپرس
+    
+    # ذخیره در دیتابیس
+    db = context.bot_data['db']
+    db.add_pack(
+        context.user_data['adding_pack_to'],
+        context.user_data['pack_name'],
+        context.user_data['pack_quantity'],
+        price
+    )
+    
+    await update.message.reply_text(
+        MESSAGES["pack_added"],
+        reply_markup=admin_main_keyboard()
+    )
+    
+    # پاک کردن داده‌های موقت
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def view_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):

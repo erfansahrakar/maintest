@@ -1,5 +1,6 @@
 """
 کیبوردها و دکمه‌های ربات
+🔴 FIX باگ 3: تغییر متن‌ها از "پک" به "عدد"
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
@@ -45,18 +46,17 @@ def product_inline_keyboard(product_id, packs):
 
 
 def cart_keyboard(cart_items):
-    """دکمه‌های سبد خرید"""
+    """🔴 FIX باگ 3: دکمه‌های سبد خرید (نمایش عدد)"""
     keyboard = []
     for item in cart_items:
         cart_id, product_name, pack_name, pack_qty, price, quantity = item
+        # 🔴 quantity حالا = تعداد عدد
         keyboard.append([InlineKeyboardButton(
-            f"🗑 حذف {product_name} ({pack_name})",
+            f"🗑 حذف {product_name} ({pack_name}) - {quantity} عدد",
             callback_data=f"remove_cart:{cart_id}"
         )])
     
-    # 🆕 دکمه کد تخفیف
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
-    
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     return InlineKeyboardMarkup(keyboard)
@@ -210,23 +210,26 @@ def confirm_info_keyboard():
 
 
 def order_items_removal_keyboard(order_id, items):
-    """🆕 دکمه‌های مدیریت آیتم‌های سفارش با ➕/➖"""
+    """🔴 FIX باگ 3: دکمه‌های مدیریت آیتم‌های سفارش (نمایش عدد)"""
     keyboard = []
     
     for idx, item in enumerate(items):
         product_name = item.get('product', 'محصول')
         pack_name = item.get('pack', 'پک')
         quantity = item.get('quantity', 0)
+        pack_quantity = item.get('pack_quantity', 1)
         
-        # ردیف اطلاعات آیتم
-        info_text = f"📦 {product_name} - {pack_name} (×{quantity})"
+        # ردیف اطلاعات آیتم - نمایش عدد
+        info_text = f"📦 {product_name} - {pack_name} (×{quantity} عدد)"
         keyboard.append([InlineKeyboardButton(info_text, callback_data=f"item_info:{idx}")])
         
         # ردیف دکمه‌های عملیات
         row = []
-        row.append(InlineKeyboardButton("➖", callback_data=f"decrease_item:{order_id}:{idx}"))
+        # 🔴 FIX: ➖ کم می‌کنه به اندازه pack_quantity
+        row.append(InlineKeyboardButton(f"➖ ({pack_quantity})", callback_data=f"decrease_item:{order_id}:{idx}"))
         row.append(InlineKeyboardButton("✏️ تعداد", callback_data=f"edit_item_qty:{order_id}:{idx}"))
-        row.append(InlineKeyboardButton("➕", callback_data=f"increase_item:{order_id}:{idx}"))
+        # 🔴 FIX: ➕ اضافه می‌کنه به اندازه pack_quantity
+        row.append(InlineKeyboardButton(f"➕ ({pack_quantity})", callback_data=f"increase_item:{order_id}:{idx}"))
         row.append(InlineKeyboardButton("❌ حذف", callback_data=f"remove_item:{order_id}:{idx}"))
         keyboard.append(row)
     
@@ -261,26 +264,23 @@ def analytics_menu_keyboard():
 
 
 def quantity_keyboard(product_id, pack_id):
-    """دکمه‌های انتخاب تعداد پک"""
+    """🔴 FIX باگ 3: دکمه‌های انتخاب تعداد (متن تغییر کرده)"""
     keyboard = []
     row = []
     
-    # دکمه‌های 1 تا 10 پک
+    # دکمه‌های 1 تا 10 بار کلیک
     for i in range(1, 11):
         row.append(InlineKeyboardButton(
-            f"{i} پک", 
+            f"{i}×", 
             callback_data=f"qty:{product_id}:{pack_id}:{i}"
         ))
-        # هر 3 دکمه یک ردیف
         if len(row) == 3:
             keyboard.append(row)
             row = []
     
-    # اگر دکمه‌ای مونده بود
     if row:
         keyboard.append(row)
     
-    # دکمه مشاهده سبد خرید
     keyboard.append([InlineKeyboardButton("🛍 مشاهده سبد خرید", callback_data="view_cart")])
     
     return InlineKeyboardMarkup(keyboard)

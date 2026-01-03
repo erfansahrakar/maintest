@@ -54,6 +54,9 @@ def cart_keyboard(cart_items):
             callback_data=f"remove_cart:{cart_id}"
         )])
     
+    # 🆕 دکمه کد تخفیف
+    keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
+    
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     return InlineKeyboardMarkup(keyboard)
@@ -87,7 +90,6 @@ def product_management_keyboard(product_id):
         [InlineKeyboardButton("✏️ ویرایش محصول", callback_data=f"edit_product:{product_id}")],
         [InlineKeyboardButton("➕ افزودن پک", callback_data=f"add_pack:{product_id}")],
         [InlineKeyboardButton("👁 مشاهده پک‌ها", callback_data=f"view_packs:{product_id}")],
-        # 🆕 دکمه جدید برای مدیریت و حذف پک‌ها
         [InlineKeyboardButton("🗑 مدیریت پک‌ها", callback_data=f"manage_packs:{product_id}")],
         [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"send_to_channel:{product_id}")],
         [InlineKeyboardButton("🔄 ویرایش در کانال", callback_data=f"edit_in_channel:{product_id}")],
@@ -208,16 +210,25 @@ def confirm_info_keyboard():
 
 
 def order_items_removal_keyboard(order_id, items):
-    """دکمه‌های حذف آیتم‌های سفارش"""
+    """🆕 دکمه‌های مدیریت آیتم‌های سفارش با ➕/➖"""
     keyboard = []
+    
     for idx, item in enumerate(items):
         product_name = item.get('product', 'محصول')
         pack_name = item.get('pack', 'پک')
-        button_text = f"❌ حذف: {product_name} - {pack_name}"
-        keyboard.append([InlineKeyboardButton(
-            button_text,
-            callback_data=f"remove_item:{order_id}:{idx}"
-        )])
+        quantity = item.get('quantity', 0)
+        
+        # ردیف اطلاعات آیتم
+        info_text = f"📦 {product_name} - {pack_name} (×{quantity})"
+        keyboard.append([InlineKeyboardButton(info_text, callback_data=f"item_info:{idx}")])
+        
+        # ردیف دکمه‌های عملیات
+        row = []
+        row.append(InlineKeyboardButton("➖", callback_data=f"decrease_item:{order_id}:{idx}"))
+        row.append(InlineKeyboardButton("✏️ تعداد", callback_data=f"edit_item_qty:{order_id}:{idx}"))
+        row.append(InlineKeyboardButton("➕", callback_data=f"increase_item:{order_id}:{idx}"))
+        row.append(InlineKeyboardButton("❌ حذف", callback_data=f"remove_item:{order_id}:{idx}"))
+        keyboard.append(row)
     
     keyboard.append([InlineKeyboardButton("✅ تایید سفارش با تغییرات", callback_data=f"confirm_modified:{order_id}")])
     keyboard.append([InlineKeyboardButton("🗑 رد کامل سفارش", callback_data=f"reject_full:{order_id}")])

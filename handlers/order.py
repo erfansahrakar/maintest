@@ -1,5 +1,6 @@
 """
 مدیریت سفارشات و پرداخت‌ها
+🔴 FIX باگ 3: نمایش عدد به جای پک
 """
 import json
 from telegram import Update
@@ -9,19 +10,17 @@ from keyboards import order_confirmation_keyboard, payment_confirmation_keyboard
 
 
 async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
-    """ارسال سفارش به ادمین برای تایید"""
+    """🔴 FIX باگ 3: ارسال سفارش به ادمین (با عدد)"""
     db = context.bot_data['db']
     order = db.get_order(order_id)
     
     if not order:
         return
     
-    # تغییر: 11 فیلد
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
-    # دریافت امن اطلاعات کاربر
     first_name = user[2] if len(user) > 2 else "کاربر"
     username = user[1] if len(user) > 1 and user[1] else "ندارد"
     phone = user[4] if len(user) > 4 and user[4] else "ندارد"
@@ -36,8 +35,9 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     text += "📦 آیتم‌ها:\n"
     
     for item in items:
+        # 🔴 FIX باگ 3: نمایش عدد
         text += f"• {item['product']} - {item['pack']}\n"
-        text += f"  تعداد: {item['quantity']} پک\n"
+        text += f"  تعداد: {item['quantity']} عدد\n"
         text += f"  قیمت: {item['price']:,.0f} تومان\n\n"
     
     text += f"💰 جمع کل: {total_price:,.0f} تومان\n"
@@ -58,7 +58,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
 
 
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سفارشات در انتظار تایید"""
+    """🔴 FIX باگ 3: نمایش سفارشات در انتظار (با عدد)"""
     db = context.bot_data['db']
     orders = db.get_pending_orders()
     
@@ -67,12 +67,10 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     for order in orders:
-        # تغییر: 11 فیلد
         order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
-        # دریافت امن اطلاعات کاربر
         first_name = user[2] if len(user) > 2 else "کاربر"
         username = user[1] if len(user) > 1 and user[1] else "ندارد"
         phone = user[4] if len(user) > 4 and user[4] else "ندارد"
@@ -86,7 +84,8 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         text += f"📍 {address}\n\n"
         
         for item in items:
-            text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
+            # 🔴 FIX باگ 3
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
         
         text += f"\n💰 جمع: {total_price:,.0f} تومان"
         
@@ -108,13 +107,11 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # تغییر وضعیت به در انتظار پرداخت
     db.update_order_status(order_id, 'waiting_payment')
     
-    # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
-    final_price = order[5]  # فیلد final_price در ایندکس 5
+    final_price = order[5]
     
     message = MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
@@ -124,14 +121,13 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(user_id, message)
     
-    # ویرایش پیام ادمین
     await query.edit_message_text(
         query.message.text + "\n\n✅ تایید شد - در انتظار پرداخت"
     )
 
 
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش آیتم‌ها برای حذف - مرحله اول"""
+    """نمایش آیتم‌ها برای حذف"""
     query = update.callback_query
     await query.answer()
     
@@ -143,11 +139,9 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    # تغییر: 11 فیلد
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
-    # نمایش لیست آیتم‌ها برای حذف
     from keyboards import order_items_removal_keyboard
     
     text = "🗑 **حذف آیتم از سفارش**\n\n"
@@ -155,8 +149,9 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "کدام محصول را می‌خواهید حذف کنید؟\n\n"
     
     for idx, item in enumerate(items):
+        # 🔴 FIX باگ 3
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   💰 {item['price']:,.0f} تومان\n\n"
+        text += f"   {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
     
     text += f"💳 جمع کل: {final_price:,.0f} تومان"
     
@@ -183,27 +178,23 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    # تغییر: 11 فیلد
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
-    # بررسی اگر فقط یک آیتم مونده
     if len(items) <= 1:
         await query.answer("⚠️ نمی‌توانید آخرین آیتم را حذف کنید! از 'رد کامل سفارش' استفاده کنید.", show_alert=True)
         return
     
-    # حذف آیتم
     removed_item = items.pop(item_index)
     
     # محاسبه مجدد قیمت کل
     new_total = sum(item['price'] for item in items)
     
-    # محاسبه مجدد تخفیف (اگر وجود داشت)
+    # محاسبه مجدد تخفیف
     new_discount = 0
     new_final = new_total
     
     if discount_code:
-        # محاسبه تخفیف برای مبلغ جدید
         discount_info = db.get_discount(discount_code)
         if discount_info:
             discount_type = discount_info[2]
@@ -221,14 +212,12 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
                 
                 new_final = new_total - new_discount
     
-    # بروزرسانی سفارش در دیتابیس
     db.cursor.execute(
         "UPDATE orders SET items = ?, total_price = ?, discount_amount = ?, final_price = ? WHERE id = ?",
         (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id)
     )
     db.conn.commit()
     
-    # نمایش لیست به‌روز شده
     from keyboards import order_items_removal_keyboard
     
     text = "✅ **آیتم حذف شد!**\n\n"
@@ -236,8 +225,9 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     text += "📋 آیتم‌های باقی‌مانده:\n\n"
     
     for idx, item in enumerate(items):
+        # 🔴 FIX باگ 3
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   💰 {item['price']:,.0f} تومان\n\n"
+        text += f"   {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
     
     text += f"💳 جمع جدید: {new_final:,.0f} تومان\n\n"
     text += "می‌خواهید آیتم دیگری حذف کنید؟"
@@ -257,10 +247,8 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # تغییر وضعیت
     db.update_order_status(order_id, 'rejected')
     
-    # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
     
@@ -270,7 +258,6 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=user_main_keyboard()
     )
     
-    # ویرایش پیام ادمین
     await query.edit_message_text(
         query.message.text + "\n\n❌ رد شد (کامل)"
     )
@@ -289,7 +276,6 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    # نمایش دوباره سفارش با دکمه‌های تایید/رد
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
@@ -307,7 +293,8 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
     text += f"📍 {address}\n\n"
     
     for item in items:
-        text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
+        # 🔴 FIX باگ 3
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
     
     text += f"\n💰 {final_price:,.0f} تومان"
     
@@ -327,10 +314,8 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # تغییر وضعیت به در انتظار پرداخت
     db.update_order_status(order_id, 'waiting_payment')
     
-    # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
@@ -341,8 +326,9 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     message += "📦 آیتم‌های تایید شده:\n\n"
     
     for item in items:
+        # 🔴 FIX باگ 3
         message += f"• {item['product']} - {item['pack']}\n"
-        message += f"  💰 {item['price']:,.0f} تومان\n\n"
+        message += f"  {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
     
     message += f"💳 مبلغ قابل پرداخت: {final_price:,.0f} تومان\n\n"
     message += MESSAGES["order_confirmed"].format(
@@ -353,7 +339,6 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     
     await context.bot.send_message(user_id, message, parse_mode='Markdown')
     
-    # ویرایش پیام ادمین
     await query.edit_message_text(
         query.message.text + "\n\n✅ تایید شد با تغییرات - در انتظار پرداخت"
     )
@@ -364,7 +349,6 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    # یافتن سفارش در انتظار پرداخت کاربر
     orders = db.get_waiting_payment_orders()
     user_order = None
     
@@ -380,19 +364,16 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = user_order[0]
     photo = update.message.photo[-1]
     
-    # ذخیره رسید
     db.add_receipt(order_id, photo.file_id)
     db.update_order_status(order_id, 'receipt_sent')
     
     await update.message.reply_text(MESSAGES["receipt_received"])
     
-    # ارسال به ادمین
     order = db.get_order(order_id)
     items = json.loads(order[2])
     final_price = order[5]
     user = db.get_user(user_id)
     
-    # دریافت امن اطلاعات کاربر
     first_name = user[2] if len(user) > 2 else "کاربر"
     username = user[1] if len(user) > 1 and user[1] else "ندارد"
     
@@ -401,7 +382,8 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"💰 مبلغ: {final_price:,.0f} تومان\n\n"
     
     for item in items:
-        text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
+        # 🔴 FIX باگ 3
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
     
     await context.bot.send_photo(
         ADMIN_ID,
@@ -415,7 +397,6 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
     """نمایش رسیدهای در انتظار تایید"""
     db = context.bot_data['db']
     
-    # یافتن سفارشات با رسید ارسال شده
     query_result = db.cursor.execute(
         "SELECT * FROM orders WHERE status = 'receipt_sent' ORDER BY created_at DESC"
     ).fetchall()
@@ -425,12 +406,10 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     for order in query_result:
-        # تغییر: 11 فیلد
         order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
-        # دریافت امن اطلاعات کاربر
         first_name = user[2] if len(user) > 2 else "کاربر"
         username = user[1] if len(user) > 1 and user[1] else "ندارد"
         
@@ -439,7 +418,8 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         text += f"💰 {final_price:,.0f} تومان\n\n"
         
         for item in items:
-            text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
+            # 🔴 FIX باگ 3
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
         
         if receipt_photo:
             await update.message.reply_photo(
@@ -457,10 +437,8 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # تغییر وضعیت به تایید پرداخت
     db.update_order_status(order_id, 'payment_confirmed')
     
-    # درخواست انتخاب نحوه ارسال از کاربر
     order = db.get_order(order_id)
     user_id = order[1]
     
@@ -473,10 +451,8 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=shipping_method_keyboard()
     )
     
-    # ذخیره order_id برای استفاده بعدی
     context.bot_data[f'pending_shipping_{user_id}'] = order_id
     
-    # ویرایش پیام ادمین
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
     )
@@ -490,10 +466,8 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # بازگشت به وضعیت انتظار پرداخت
     db.update_order_status(order_id, 'waiting_payment')
     
-    # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
     final_price = order[5]
@@ -507,7 +481,6 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(user_id, message)
     
-    # ویرایش پیام ادمین
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
     )

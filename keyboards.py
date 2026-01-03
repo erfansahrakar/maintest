@@ -87,6 +87,8 @@ def product_management_keyboard(product_id):
         [InlineKeyboardButton("✏️ ویرایش محصول", callback_data=f"edit_product:{product_id}")],
         [InlineKeyboardButton("➕ افزودن پک", callback_data=f"add_pack:{product_id}")],
         [InlineKeyboardButton("👁 مشاهده پک‌ها", callback_data=f"view_packs:{product_id}")],
+        # 🆕 دکمه جدید برای مدیریت و حذف پک‌ها
+        [InlineKeyboardButton("🗑 مدیریت پک‌ها", callback_data=f"manage_packs:{product_id}")],
         [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"send_to_channel:{product_id}")],
         [InlineKeyboardButton("🔄 ویرایش در کانال", callback_data=f"edit_in_channel:{product_id}")],
         [InlineKeyboardButton("🗑 حذف محصول", callback_data=f"delete_product:{product_id}")],

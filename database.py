@@ -241,9 +241,9 @@ class Database:
         log_database_operation("INSERT", "products", product_id)
         
         return product_id
-    except Exception as e:
-        log_error("Database", f"خطا در افزودن محصول: {e}")
-        raise
+            except Exception as e:
+                log_error("Database", f"خطا در افزودن محصول: {e}")
+                raise
     
     def get_product(self, product_id):
         """دریافت اطلاعات یک محصول"""

@@ -4,6 +4,7 @@ python-telegram-bot==20.7
 # کتابخانه‌های نمودار و گراف
 matplotlib==3.8.2
 numpy==1.26.3
+python-dotenv==1.0.0
 
 # دیتابیس (SQLite داخلی پایتون است)
 # اما در صورت نیاز به PostgreSQL یا MySQL:

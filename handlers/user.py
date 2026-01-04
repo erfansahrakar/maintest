@@ -671,7 +671,7 @@ async def show_final_invoice(update, context, order_id):
             invoice_text += f"🎫 **کد تخفیف:** {discount_code}\n"
         invoice_text += f"💳 **مبلغ نهایی:** {final_price:,.0f} تومان\n"
     
-    invoice_text += "\n═" * 25 + "\n\n"
+    invoice_text += "═" * 25 + "\n\n"
     
     invoice_text += "👤 **مشخصات گیرنده:**\n"
     if user[3]:

@@ -20,6 +20,14 @@ from telegram.ext import (
 from config import BOT_TOKEN, ADMIN_ID
 from database import Database
 from telegram.ext import ContextTypes
+from logger import (
+    bot_logger, 
+    log_startup, 
+    log_shutdown, 
+    log_user_action,
+    log_error
+)
+
 from rate_limiter import rate_limiter
 from states import *
 
@@ -168,6 +176,7 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
 
 
 def main():
+    log_startup()  # 🆕
     """تابع اصلی"""
     # Import توابع admin
     from handlers.admin import (
@@ -520,8 +529,10 @@ def main():
     
     # شروع ربات
     logger.info("🤖 ربات شروع به کار کرد!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        log_shutdown()  # 🆕
+        
 if __name__ == '__main__':
     main()

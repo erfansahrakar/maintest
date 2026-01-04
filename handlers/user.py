@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from config import MESSAGES
 from validators import Validators
 from states import FULL_NAME, ADDRESS_TEXT, PHONE_NUMBER
+from rate_limiter import rate_limit, action_limit
 from keyboards import (
     user_main_keyboard,
     product_inline_keyboard,
@@ -105,6 +106,7 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, produ
         )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🔴 FIX باگ 3: انتخاب پک - افزودن مستقیم به سبد (بر اساس عدد)"""
     query = update.callback_query
@@ -240,6 +242,7 @@ async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.edit_text("✅ سبد خرید شما خالی شد.")
 
 
+@action_limit('order', max_requests=3, window_seconds=3600)
 async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع نهایی کردن سفارش"""
     query = update.callback_query

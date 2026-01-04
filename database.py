@@ -238,7 +238,7 @@ class Database:
                 product_id = self.cursor.lastrowid
         
         # 🆕 لاگ عملیات
-        log_database_operation("INSERT", "products", product_id)
+                log_database_operation("INSERT", "products", product_id)
         
         return product_id
             except Exception as e:

@@ -1,6 +1,7 @@
 """
 هندلرهای مربوط به پنل ادمین
 🔴 FIX باگ 1: ذخیره صحیح channel_message_id
+✅ FIX: ترتیب صحیح log_admin_action
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -89,13 +90,15 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
     
     # ذخیره در دیتابیس
     db = context.bot_data['db']
+    
+    # ✅ FIX: اول محصول رو ثبت کن
     product_id = db.add_product(
         context.user_data['product_name'],
         context.user_data['product_desc'],
         context.user_data['product_photo']
     )
-
-        # 🆕 لاگ عملیات ادمین
+    
+    # ✅ FIX: بعد لاگ کن (الان product_id داریم)
     log_admin_action(
         update.effective_user.id, 
         "افزودن محصول", 

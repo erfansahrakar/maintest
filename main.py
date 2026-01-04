@@ -272,25 +272,7 @@ def main():
 
     
     from telegram.ext import BaseHandler
-    
-    class GlobalRateLimitHandler(BaseHandler):
-        """Handler برای rate limiting سراسری"""
         
-        def check_update(self, update):
-            """این handler برای همه update ها اجرا میشه"""
-            return update.effective_user is not None
-        
-        async def handle_update(self, update, application, check_result, context):
-            """بررسی rate limit قبل از هر چیزی"""
-            # اجرای middleware
-            allowed = await global_rate_limit(update, context)
-            
-            # اگه مسدود شد، جلوگیری از ادامه
-            if not allowed:
-                return
-
-    application.add_handler(GlobalRateLimitHandler(), group=-1)
-    
     # راه‌اندازی بکاپ خودکار
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()

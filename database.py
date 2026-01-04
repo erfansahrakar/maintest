@@ -7,6 +7,7 @@
 import sqlite3
 import json
 import threading
+from logger import log_database_operation, log_error
 from datetime import datetime
 from typing import Optional, List
 from contextlib import contextmanager
@@ -228,13 +229,21 @@ class Database:
     # ==================== محصولات ====================
     
     def add_product(self, name: str, description: str, photo_id: str):
-        """افزودن محصول جدید"""
+    try:
         self.cursor.execute(
             "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
             (name, description, photo_id)
         )
         self.conn.commit()
-        return self.cursor.lastrowid
+        product_id = self.cursor.lastrowid
+        
+        # 🆕 لاگ عملیات
+        log_database_operation("INSERT", "products", product_id)
+        
+        return product_id
+    except Exception as e:
+        log_error("Database", f"خطا در افزودن محصول: {e}")
+        raise
     
     def get_product(self, product_id):
         """دریافت اطلاعات یک محصول"""

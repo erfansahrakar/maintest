@@ -10,6 +10,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    TypeHandler,
     ConversationHandler,
     filters,
     JobQueue
@@ -111,53 +112,58 @@ async def error_handler(update: Update, context):
     """مدیریت خطاها"""
     logger.error(f"خطا: {context.error}")
 
-async def global_rate_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    محدودیت سراسری برای همه کاربران
+    بررسی محدودیت سراسری برای همه درخواست‌ها
+    محدودیت: 20 درخواست در دقیقه
+    """
+    # فقط برای کاربران (نه برای channel post ها)
+    if not update.effective_user:
+        return
     
-    محدودیت: 20 درخواست در هر دقیقه
-    """
     user_id = update.effective_user.id
     
-    # محدودیت: 20 درخواست در 60 ثانیه
+    # ✅ ادمین bypass کنه
+    from config import ADMIN_ID
+    if user_id == ADMIN_ID:
+        return  # ادمین محدودیت نداره
+    
+    # بررسی محدودیت
     allowed, remaining_time = rate_limiter.check_rate_limit(
         user_id,
-        max_requests=20,
-        window_seconds=60
+        max_requests=20,  # 20 درخواست
+        window_seconds=60  # در 1 دقیقه
     )
     
     if not allowed:
-        # پیام خطا
+        # محاسبه زمان انتظار
         minutes = remaining_time // 60
         seconds = remaining_time % 60
         
         if minutes > 0:
-            wait_time = f"{minutes} دقیقه و {seconds} ثانیه"
+            wait_msg = f"{minutes} دقیقه و {seconds} ثانیه"
         else:
-            wait_time = f"{seconds} ثانیه"
-        
-        warning = f"⚠️ لطفاً {wait_time} صبر کنید"
+            wait_msg = f"{seconds} ثانیه"
         
         # ارسال پیام خطا
         try:
             if update.message:
                 await update.message.reply_text(
                     f"🛑 **محدودیت درخواست!**\n\n"
-                    f"شما به حداکثر تعداد مجاز رسیده‌اید.\n\n"
-                    f"⏰ {warning}\n\n"
+                    f"⏰ لطفاً {wait_msg} صبر کنید.\n\n"
                     f"💡 محدودیت: 20 درخواست در دقیقه",
                     parse_mode='Markdown'
                 )
             elif update.callback_query:
-                await update.callback_query.answer(warning, show_alert=True)
+                await update.callback_query.answer(
+                    f"⚠️ لطفاً {wait_msg} صبر کنید",
+                    show_alert=True
+                )
         except Exception as e:
-            logger.error(f"Rate limit notification error: {e}")
+            logger.error(f"Rate limit error: {e}")
         
-        # مسدود کردن ادامه پردازش
-        return False
-    
-    # اجازه ادامه
-    return True
+        # جلوگیری از ادامه
+        raise Exception("Rate limited")
 
 
 
@@ -256,6 +262,15 @@ def main():
     # ذخیره دیتابیس در bot_data
     application.bot_data['db'] = db
 
+
+    application.add_handler(
+        TypeHandler(Update, global_rate_limit_check),
+        group=-1  # اجرا قبل از همه handler ها
+    )
+    
+    logger.info("✅ Global rate limiter فعال شد")
+
+    
     from telegram.ext import BaseHandler
     
     class GlobalRateLimitHandler(BaseHandler):

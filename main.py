@@ -18,6 +18,7 @@ from telegram.ext import (
 # ایمپورت ماژول‌های پروژه
 from config import BOT_TOKEN, ADMIN_ID
 from database import Database
+from rate_limiter import rate_limiter
 from states import *
 
 # تنظیم لاگینگ
@@ -108,6 +109,55 @@ async def handle_photos(update: Update, context):
 async def error_handler(update: Update, context):
     """مدیریت خطاها"""
     logger.error(f"خطا: {context.error}")
+
+async def global_rate_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    محدودیت سراسری برای همه کاربران
+    
+    محدودیت: 20 درخواست در هر دقیقه
+    """
+    user_id = update.effective_user.id
+    
+    # محدودیت: 20 درخواست در 60 ثانیه
+    allowed, remaining_time = rate_limiter.check_rate_limit(
+        user_id,
+        max_requests=20,
+        window_seconds=60
+    )
+    
+    if not allowed:
+        # پیام خطا
+        minutes = remaining_time // 60
+        seconds = remaining_time % 60
+        
+        if minutes > 0:
+            wait_time = f"{minutes} دقیقه و {seconds} ثانیه"
+        else:
+            wait_time = f"{seconds} ثانیه"
+        
+        warning = f"⚠️ لطفاً {wait_time} صبر کنید"
+        
+        # ارسال پیام خطا
+        try:
+            if update.message:
+                await update.message.reply_text(
+                    f"🛑 **محدودیت درخواست!**\n\n"
+                    f"شما به حداکثر تعداد مجاز رسیده‌اید.\n\n"
+                    f"⏰ {warning}\n\n"
+                    f"💡 محدودیت: 20 درخواست در دقیقه",
+                    parse_mode='Markdown'
+                )
+            elif update.callback_query:
+                await update.callback_query.answer(warning, show_alert=True)
+        except Exception as e:
+            logger.error(f"Rate limit notification error: {e}")
+        
+        # مسدود کردن ادامه پردازش
+        return False
+    
+    # اجازه ادامه
+    return True
+
 
 
 def main():
@@ -204,6 +254,26 @@ def main():
     
     # ذخیره دیتابیس در bot_data
     application.bot_data['db'] = db
+
+    from telegram.ext import BaseHandler
+    
+    class GlobalRateLimitHandler(BaseHandler):
+        """Handler برای rate limiting سراسری"""
+        
+        def check_update(self, update):
+            """این handler برای همه update ها اجرا میشه"""
+            return update.effective_user is not None
+        
+        async def handle_update(self, update, application, check_result, context):
+            """بررسی rate limit قبل از هر چیزی"""
+            # اجرای middleware
+            allowed = await global_rate_limit(update, context)
+            
+            # اگه مسدود شد، جلوگیری از ادامه
+            if not allowed:
+                return
+
+    application.add_handler(GlobalRateLimitHandler(), group=-1)
     
     # راه‌اندازی بکاپ خودکار
     from backup_scheduler import setup_backup_job, setup_backup_folder
@@ -217,6 +287,7 @@ def main():
             logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
+
     
     # ==================== ConversationHandler برای افزودن محصول ====================
     add_product_conv = ConversationHandler(

@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from config import MESSAGES
 from validators import Validators
+from logger import log_user_action, log_order, log_discount_usage
 from states import FULL_NAME, ADDRESS_TEXT, PHONE_NUMBER
 from rate_limiter import rate_limit, action_limit
 from keyboards import (
@@ -135,6 +136,9 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
     # 🔴 FIX باگ 3: افزودن 1 بار کلیک = pack_qty عدد
     # مثلاً پک 6 تایی = 6 عدد اضافه میشه
     db.add_to_cart(user_id, product_id, pack_id, quantity=1)
+
+    # 🆕 لاگ عملیات
+    log_user_action(user_id, "افزودن به سبد", f"{prod_name} - {pack_name}")
     
     # محاسبه تعداد کل در سبد
     cart = db.get_cart(user_id)
@@ -519,6 +523,13 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_price=final_price,
         discount_code=discount_code
     )
+
+    # 🆕 لاگ سفارش
+    log_order(order_id, user_id, "pending", final_price)
+
+    # اگر تخفیف داره:
+    if discount_code:
+        log_discount_usage(user_id, discount_code, discount_amount)
     
     # ثبت استفاده از تخفیف
     if discount_code:

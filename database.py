@@ -234,8 +234,8 @@ class Database:
             "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
             (name, description, photo_id)
         )
-        self.conn.commit()
-        product_id = self.cursor.lastrowid
+                self.conn.commit()
+                product_id = self.cursor.lastrowid
         
         # 🆕 لاگ عملیات
         log_database_operation("INSERT", "products", product_id)

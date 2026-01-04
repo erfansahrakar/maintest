@@ -18,6 +18,7 @@ from telegram.ext import (
 # ایمپورت ماژول‌های پروژه
 from config import BOT_TOKEN, ADMIN_ID
 from database import Database
+from telegram.ext import ContextTypes
 from rate_limiter import rate_limiter
 from states import *
 

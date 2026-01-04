@@ -460,6 +460,8 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
+
+    )
     
 
 async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):

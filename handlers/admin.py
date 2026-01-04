@@ -89,7 +89,6 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
     
     # ذخیره در دیتابیس
     db = context.bot_data['db']
-    product_id = db.add_product(
         
         # 🆕 لاگ عملیات ادمین
     log_admin_action(
@@ -97,7 +96,7 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
         "افزودن محصول", 
         f"ID: {product_id}"
     )
-        
+     product_id = db.add_product(
         context.user_data['product_name'],
         context.user_data['product_desc'],
         context.user_data['product_photo']

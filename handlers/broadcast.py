@@ -6,6 +6,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
+from logger import log_broadcast
 from states import BROADCAST_MESSAGE
 from keyboards import cancel_keyboard, admin_main_keyboard, broadcast_confirm_keyboard
 
@@ -100,6 +101,13 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         f"⏳ در حال ارسال به {len(users)} کاربر...\n"
         f"لطفاً صبر کنید..."
+    )
+
+    log_broadcast(
+    update.effective_user.id,
+    success_count,
+    failed_count,
+    len(users)
     )
     
     success_count = 0

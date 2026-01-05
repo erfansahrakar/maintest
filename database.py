@@ -611,34 +611,32 @@ class Database:
     # سبد خرید
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-    """✅ FIX: بدون استفاده از added_at در UPDATE"""
-    pack = self.get_pack(pack_id)
-    if not pack:
-        return
+        """افزودن محصول به سبد خرید"""
+        pack = self.get_pack(pack_id)
+        if not pack:
+            return
     
-    pack_quantity = pack[3]
-    actual_quantity = quantity * pack_quantity
+        pack_quantity = pack[3]
+        actual_quantity = quantity * pack_quantity
     
-    with self.transaction(immediate=True) as cursor:
-        # بررسی وجود
-        cursor.execute(
-            "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
-            (user_id, product_id, pack_id)
-        )
-        existing = cursor.fetchone()
+        with self.transaction(immediate=True) as cursor:
+            cursor.execute(
+                "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
+                (user_id, product_id, pack_id)
+            )
+            existing = cursor.fetchone()
         
-        if existing:
-            new_quantity = existing[1] + actual_quantity
-            # ✅ FIX: بدون added_at
-            cursor.execute(
-                "UPDATE cart SET quantity = ? WHERE id = ?",
-                (new_quantity, existing[0])
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
-                (user_id, product_id, pack_id, actual_quantity)
-            )
+            if existing:
+                new_quantity = existing[1] + actual_quantity
+                cursor.execute(
+                    "UPDATE cart SET quantity = ? WHERE id = ?",
+                    (new_quantity, existing[0])
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
+                    (user_id, product_id, pack_id, actual_quantity)
+                )
     
     def get_cart(self, user_id: int) -> List:
     """✅ FIX: بدون ORDER BY added_at"""

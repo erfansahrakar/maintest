@@ -2,6 +2,7 @@
 سیستم Rate Limiting برای جلوگیری از spam و حملات DoS
 ✅ اصلاح شده: global rate limit دیگه exception throw نمی‌کنه
 ✅ بهبود error handling
+✅ FIX: Admin Bypass اضافه شده
 🛡️ محدودیت‌ها:
 - 20 پیام در دقیقه (سراسری)
 - 3 سفارش در ساعت
@@ -15,6 +16,7 @@ from collections import defaultdict, deque
 from typing import Callable, Dict, Tuple
 from telegram import Update
 from telegram.ext import ContextTypes
+from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +144,19 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
+# ==================== Helper Functions ====================
+
+def is_admin(user_id: int) -> bool:
+    """✅ FIX: بررسی ادمین بودن کاربر"""
+    return user_id == ADMIN_ID
+
+
 # ==================== Decorators ====================
 
 def rate_limit(max_requests: int = 10, window_seconds: int = 10):
     """
     دکوریتور محدودسازی کلی
+    ✅ FIX: Admin Bypass اضافه شده
     
     مثال:
         @rate_limit(max_requests=5, window_seconds=60)
@@ -160,6 +170,11 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 10):
                 return await func(update, context, *args, **kwargs)
             
             user_id = update.effective_user.id
+            
+            # ✅ FIX: Admin Bypass
+            if is_admin(user_id):
+                logger.debug(f"✅ Admin {user_id} bypassed rate limit")
+                return await func(update, context, *args, **kwargs)
             
             allowed, remaining_time = rate_limiter.check_rate_limit(
                 user_id, max_requests, window_seconds
@@ -194,6 +209,7 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 10):
 def action_limit(action: str, max_requests: int, window_seconds: int):
     """
     دکوریتور محدودسازی برای عملیات خاص
+    ✅ FIX: Admin Bypass اضافه شده
     
     مثال:
         @action_limit('order', max_requests=3, window_seconds=3600)
@@ -207,6 +223,11 @@ def action_limit(action: str, max_requests: int, window_seconds: int):
                 return await func(update, context, *args, **kwargs)
             
             user_id = update.effective_user.id
+            
+            # ✅ FIX: Admin Bypass
+            if is_admin(user_id):
+                logger.debug(f"✅ Admin {user_id} bypassed action limit for '{action}'")
+                return await func(update, context, *args, **kwargs)
             
             allowed, remaining_time = rate_limiter.check_action_limit(
                 user_id, action, max_requests, window_seconds
@@ -266,37 +287,14 @@ def action_limit(action: str, max_requests: int, window_seconds: int):
     return decorator
 
 
-# ==================== Helper Functions ====================
-
-def is_admin(user_id: int, admin_id: int) -> bool:
-    """بررسی ادمین بودن کاربر"""
-    return user_id == admin_id
-
-
 def bypass_rate_limit_for_admin(admin_id: int):
     """
-    دکوریتور برای bypass کردن rate limit برای ادمین
+    ⚠️ DEPRECATED: این دکوریتور دیگه لازم نیست
+    Admin Bypass به طور خودکار در rate_limit و action_limit اعمال میشه
     
-    مثال:
-        @bypass_rate_limit_for_admin(ADMIN_ID)
-        @rate_limit(10, 10)
-        async def my_handler(update, context):
-            ...
+    این تابع فقط برای backward compatibility نگه داشته شده
     """
     def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-            if not update.effective_user:
-                return await func(update, context, *args, **kwargs)
-            
-            user_id = update.effective_user.id
-            
-            # اگر ادمین بود، بدون چک rate limit اجرا کن
-            if is_admin(user_id, admin_id):
-                return await func(update, context, *args, **kwargs)
-            
-            # در غیر اینصورت، تابع اصلی (که rate limit داره) اجرا میشه
-            return await func(update, context, *args, **kwargs)
-        
-        return wrapper
+        logger.warning(f"⚠️ bypass_rate_limit_for_admin is deprecated - Admin bypass is now automatic")
+        return func
     return decorator

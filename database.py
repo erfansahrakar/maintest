@@ -1,13 +1,14 @@
 """
 مدیریت دیتابیس با SQLite
-
+✅ اضافه شده: تاریخ انقضا برای سفارشات (1 روز)
+✅ اضافه شده: حذف سفارش توسط کاربر
 """
 import sqlite3
 import json
 import threading
 import atexit
 from logger import log_database_operation, log_error
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import contextmanager
 from config import DATABASE_NAME
@@ -94,9 +95,7 @@ class DatabaseError(Exception):
 
 
 class Database:
-    """کلاس مدیریت دیتابیس با امنیت بالا
-    ✅ FIX: Thread Safety کامل - دیگه self.cursor سراسری نداریم
-    """
+    """کلاس مدیریت دیتابیس با امنیت بالا"""
 
     def __init__(self, cache_manager=None):
         """✅ FIX: حذف self.conn و self.cursor سراسری"""
@@ -217,6 +216,7 @@ class Database:
             )
         """)
         
+        # 🆕 اضافه شده: فیلد expires_at
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,6 +230,7 @@ class Database:
                 receipt_photo TEXT,
                 shipping_method TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
@@ -265,6 +266,34 @@ class Database:
         
         conn.commit()
         self._create_indexes()
+        self._migrate_existing_orders()  # 🆕 مهاجرت داده‌های قدیمی
+    
+    def _migrate_existing_orders(self):
+        """🆕 اضافه کردن expires_at به سفارشات قدیمی"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            # چک کردن وجود ستون
+            cursor.execute("PRAGMA table_info(orders)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'expires_at' not in columns:
+                logger.info("🔄 اضافه کردن ستون expires_at...")
+                cursor.execute("ALTER TABLE orders ADD COLUMN expires_at TIMESTAMP")
+                conn.commit()
+            
+            # بروزرسانی سفارشات قدیمی که expires_at ندارن
+            cursor.execute("""
+                UPDATE orders 
+                SET expires_at = datetime(created_at, '+1 day')
+                WHERE expires_at IS NULL
+            """)
+            conn.commit()
+            
+            logger.info("✅ مهاجرت داده‌های قدیمی انجام شد")
+        except Exception as e:
+            logger.error(f"❌ خطا در مهاجرت: {e}")
     
     def _create_indexes(self):
         """ایجاد Index ها برای بهبود سرعت"""
@@ -276,6 +305,7 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_expires_at ON orders(expires_at)",  # 🆕
             "CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
@@ -292,7 +322,6 @@ class Database:
     # ==================== محصولات ====================
     
     def add_product(self, name: str, description: str, photo_id: str):
-        """✅ FIX: استفاده از transaction"""
         try:
             with self.transaction() as cursor:
                 cursor.execute(
@@ -310,7 +339,6 @@ class Database:
             raise
     
     def get_product(self, product_id):
-        """✅ FIX: استفاده از connection pool"""
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
@@ -343,7 +371,6 @@ class Database:
             with self.transaction() as cursor:
                 cursor.execute("UPDATE products SET channel_message_id = ? WHERE id = ?", (message_id, product_id))
             
-            # بررسی ذخیره شدن
             conn = self._get_conn()
             cursor = conn.cursor()
             cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
@@ -448,17 +475,12 @@ class Database:
     # ==================== سبد خرید ====================
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        """
-        ✅ FIX: افزودن به سبد با Lock برای جلوگیری از duplicate
-        ✅ FIX: Indent درست شد - حالا داخل کلاس Database هست
-        """
-        # 🔴 استفاده از Lock برای Thread Safety
+        """افزودن به سبد با Lock برای جلوگیری از duplicate"""
         with _cart_lock:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            # 🔴 بررسی وجود آیتم با Transaction
-            cursor.execute("BEGIN IMMEDIATE")  # Lock کل جدول
+            cursor.execute("BEGIN IMMEDIATE")
             
             try:
                 cursor.execute("""
@@ -477,14 +499,12 @@ class Database:
                 actual_quantity = quantity * pack_quantity
                 
                 if existing:
-                    # Update موجود
                     new_quantity = existing[1] + actual_quantity
                     cursor.execute(
                         "UPDATE cart SET quantity = ? WHERE id = ?", 
                         (new_quantity, existing[0])
                     )
                 else:
-                    # Insert جدید
                     cursor.execute("""
                         INSERT INTO cart (user_id, product_id, pack_id, quantity) 
                         VALUES (?, ?, ?, ?)
@@ -532,18 +552,25 @@ class Database:
         if result:
             self._invalidate_cache(f"cart:{result[0]}")
     
-    # ==================== سفارشات ====================
+    # ==================== سفارشات (بروزرسانی شده) ====================
     
     def create_order(self, user_id: int, items: List[dict], total_price: float, 
                     discount_amount: float = 0, final_price: Optional[float] = None, 
                     discount_code: Optional[str] = None):
+        """🆕 ایجاد سفارش با تاریخ انقضا ۱ روزه"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
+        # 🆕 محاسبه تاریخ انقضا (۱ روز بعد)
+        expires_at = datetime.now() + timedelta(days=1)
+        
         with self.transaction() as cursor:
-            cursor.execute("INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)", 
-                         (user_id, items_json, total_price, discount_amount, final_price, discount_code))
+            cursor.execute("""
+                INSERT INTO orders 
+                (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, items_json, total_price, discount_amount, final_price, discount_code, expires_at))
             order_id = cursor.lastrowid
             
         self._invalidate_cache("stats:")
@@ -582,10 +609,43 @@ class Database:
         return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
+        """🆕 دریافت سفارشات کاربر - شامل منقضی شده‌ها"""
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+        cursor.execute("""
+            SELECT * FROM orders 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC
+        """, (user_id,))
         return cursor.fetchall()
+    
+    def delete_order(self, order_id: int):
+        """🆕 حذف سفارش توسط کاربر"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+                log_database_operation("DELETE", "orders", order_id)
+                self._invalidate_cache("stats:")
+                return True
+        except Exception as e:
+            logger.error(f"❌ خطا در حذف سفارش {order_id}: {e}")
+            return False
+    
+    def is_order_expired(self, order_id: int) -> bool:
+        """🆕 بررسی منقضی بودن سفارش"""
+        order = self.get_order(order_id)
+        if not order:
+            return True
+        
+        expires_at = order[11]  # فیلد expires_at
+        if not expires_at:
+            return False
+        
+        # تبدیل string به datetime
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+        
+        return datetime.now() > expires_at
     
     # ==================== تخفیف ====================
     
@@ -681,7 +741,7 @@ class Database:
     
     @property
     def cursor(self):
-        """✅ FIX: برای backward compatibility - به جای self.cursor مستقیم از pool استفاده می‌کنیم"""
+        """✅ FIX: برای backward compatibility"""
         return self._get_conn().cursor()
     
     @property  

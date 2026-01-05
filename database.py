@@ -6,7 +6,6 @@ import sqlite3
 import json
 import threading
 import atexit
-import logging
 from logger import log_database_operation, log_error
 from datetime import datetime
 from typing import Optional, List
@@ -445,31 +444,23 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users")
         return cursor.fetchall()
-        
-    # ==================== سبد خرید ====================
-
-
-    def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-    """
-    🔥 FIX: افزودن به سبد با Lock و Transaction کامل
     
-    Args:
-        user_id: شناسه کاربر
-        product_id: شناسه محصول
-        pack_id: شناسه پک
-        quantity: تعداد (پیش‌فرض 1 = یک بار کلیک)
-    """
-    # 🔥 Lock برای Thread Safety
-    with _cart_lock:
-        try:
+    # ==================== سبد خرید ====================
+    
+    def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
+        """
+        ✅ FIX: افزودن به سبد با Lock برای جلوگیری از duplicate
+        ✅ FIX: Indent درست شد - حالا داخل کلاس Database هست
+        """
+        # 🔴 استفاده از Lock برای Thread Safety
+        with _cart_lock:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            # 🔥 شروع Transaction
-            cursor.execute("BEGIN IMMEDIATE")
+            # 🔴 بررسی وجود آیتم با Transaction
+            cursor.execute("BEGIN IMMEDIATE")  # Lock کل جدول
             
             try:
-                # بررسی وجود آیتم
                 cursor.execute("""
                     SELECT id, quantity FROM cart 
                     WHERE user_id = ? AND product_id = ? AND pack_id = ?
@@ -477,14 +468,12 @@ class Database:
                 
                 existing = cursor.fetchone()
                 
-                # دریافت اطلاعات پک
                 pack = self.get_pack(pack_id)
                 if not pack:
-                    logger.error(f"❌ Pack {pack_id} not found!")
                     cursor.execute("ROLLBACK")
-                    return False
+                    return
                 
-                pack_quantity = pack[3]  # تعداد در هر پک
+                pack_quantity = pack[3]
                 actual_quantity = quantity * pack_quantity
                 
                 if existing:
@@ -494,36 +483,22 @@ class Database:
                         "UPDATE cart SET quantity = ? WHERE id = ?", 
                         (new_quantity, existing[0])
                     )
-                    logger.debug(f"✅ Cart updated: cart_id={existing[0]}, new_qty={new_quantity}")
                 else:
                     # Insert جدید
                     cursor.execute("""
                         INSERT INTO cart (user_id, product_id, pack_id, quantity) 
                         VALUES (?, ?, ?, ?)
                     """, (user_id, product_id, pack_id, actual_quantity))
-                    logger.debug(f"✅ Cart inserted: user={user_id}, pack={pack_id}, qty={actual_quantity}")
                 
-                # 🔥 Commit Transaction
                 cursor.execute("COMMIT")
-                conn.commit()
+                self._invalidate_cache(f"cart:{user_id}")
                 
-                # Invalidate cache
-                if self.cache_manager:
-                    self.cache_manager.invalidate(f"cart:{user_id}")
+                logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
                 
-                logger.info(f"✅ add_to_cart successful: user={user_id}, pack={pack_id}, qty={actual_quantity}")
-                return True
-            
             except Exception as e:
-                # 🔥 Rollback در صورت خطا
                 cursor.execute("ROLLBACK")
-                conn.rollback()
-                logger.error(f"❌ Transaction error in add_to_cart: {e}", exc_info=True)
+                logger.error(f"❌ Cart error: {e}")
                 raise
-        
-        except Exception as e:
-            logger.error(f"❌ Fatal error in add_to_cart: {e}", exc_info=True)
-            return False
     
     def get_cart(self, user_id: int):
         self.clean_invalid_cart_items(user_id)

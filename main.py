@@ -1,5 +1,7 @@
 """
 ربات فروشگاه مانتو تلگرام
+✅ FIX باگ 11: Analytics بهینه شده
+✅ FIX باگ 12: حذف duplicate error handler
 ✅ نسخه بروزرسانی شده با:
 - Health Check
 - Better Error Handling
@@ -10,6 +12,7 @@ import logging
 import signal
 import sys
 import time
+from datetime import time as datetime_time
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -39,7 +42,7 @@ from states import *
 
 # 🆕 ایمپورت ماژول‌های جدید
 from health_check import HealthChecker
-from error_handler import EnhancedErrorHandler, handle_errors
+from error_handler import EnhancedErrorHandler
 from cache_manager import cache_manager, DatabaseCache
 from admin_dashboard import (
     admin_dashboard,
@@ -133,24 +136,32 @@ async def handle_photos(update: Update, context):
     await handle_receipt(update, context)
 
 
+# 🔴 FIX باگ 12: فقط یک error handler - EnhancedErrorHandler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت خطاها - نسخه پیشرفته"""
+    """
+    🔴 FIX باگ 12: مدیریت خطاها - نسخه واحد
+    فقط از EnhancedErrorHandler استفاده می‌کنیم
+    """
     error = context.error
     
-    # 🆕 استفاده از Enhanced Error Handler
+    # استفاده از Enhanced Error Handler
     enhanced_error_handler = context.bot_data.get('error_handler')
     
     if enhanced_error_handler:
         user_id = update.effective_user.id if update and update.effective_user else None
         
-        await enhanced_error_handler.handle_error(
-            error=error,
-            context=context,
-            user_id=user_id,
-            extra_info={'update_type': type(update).__name__}
-        )
+        try:
+            await enhanced_error_handler.handle_error(
+                error=error,
+                context=context,
+                user_id=user_id,
+                extra_info={'update_type': type(update).__name__ if update else 'None'}
+            )
+        except Exception as e:
+            # اگر خود error handler خطا داد، لاگ ساده کن
+            logger.error(f"❌ Error in error handler: {e}", exc_info=True)
     else:
-        # Fallback به error handler قدیمی
+        # Fallback - اگر enhanced handler در دسترس نبود
         logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
         
         if update and update.effective_user:
@@ -298,7 +309,7 @@ def main():
         confirm_broadcast, cancel_broadcast
     )
     
-    from handlers.analytics import handle_analytics_report
+    from handlers.analytics import handle_analytics_report, scheduled_stats_update
     
     # ایجاد دیتابیس
     db = Database()
@@ -354,6 +365,22 @@ def main():
             logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
+    
+    # 🔴 FIX باگ 11: راه‌اندازی به‌روزرسانی دوره‌ای آمار
+    try:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            # هر ساعت آمار را به‌روزرسانی کن
+            application.job_queue.run_repeating(
+                scheduled_stats_update,
+                interval=3600,  # 3600 ثانیه = 1 ساعت
+                first=10,  # اولین بار بعد از 10 ثانیه
+                name="stats_update"
+            )
+            logger.info("✅ به‌روزرسانی دوره‌ای آمار فعال شد (هر 1 ساعت)")
+        else:
+            logger.warning("⚠️ JobQueue در دسترس نیست - به‌روزرسانی آمار غیرفعال است")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در راه‌اندازی به‌روزرسانی آمار: {e}")
     
     # ==================== ConversationHandler ها ====================
     
@@ -565,7 +592,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
-    # Error handler
+    # 🔴 FIX باگ 12: فقط یک error handler
     application.add_error_handler(error_handler)
     
     # شروع ربات
@@ -574,6 +601,8 @@ def main():
     logger.info("✅ Enhanced Error Handler فعال")
     logger.info("✅ Cache Manager فعال")
     logger.info("✅ Admin Dashboard فعال")
+    logger.info("✅ FIX باگ 11: Analytics بهینه شده")
+    logger.info("✅ FIX باگ 12: Duplicate error handler حذف شد")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)

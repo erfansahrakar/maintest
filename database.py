@@ -449,7 +449,7 @@ class Database:
     # ==================== سبد خرید ====================
 
 
-def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
+    def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
     """
     🔥 FIX: افزودن به سبد با Lock و Transaction کامل
     

@@ -1,18 +1,26 @@
 """
 سیستم پیام‌رسانی همگانی
-🔥 FIX: Batch Processing با Progress Bar
-✅ Error handling بهتر
-✅ Rate limiting هوشمند
-✅ Retry mechanism
+✅ FIX: Batch Processing با Progress Bar
+✅ FIX: Error handling بهتر
+✅ FIX: Retry mechanism
+✅ بهینه‌سازی سرعت ارسال
 """
 import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
+from telegram.error import RetryAfter, TimedOut, NetworkError, Forbidden
 from config import ADMIN_ID
 from logger import log_broadcast, log_error
 from states import BROADCAST_MESSAGE
 from keyboards import cancel_keyboard, admin_main_keyboard, broadcast_confirm_keyboard
-from telegram.error import TelegramError, Forbidden, BadRequest
+import logging
+
+logger = logging.getLogger(__name__)
+
+# 🔥 تنظیمات Batch Processing
+BATCH_SIZE = 30  # ارسال به 30 نفر همزمان
+BATCH_DELAY = 1  # تاخیر 1 ثانیه بین هر batch
+RETRY_ATTEMPTS = 3  # تعداد تلاش مجدد
 
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,9 +94,65 @@ async def broadcast_message_received(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 
+async def send_message_to_user(context, user_id, broadcast_type, broadcast_content, broadcast_caption):
+    """
+    🔥 ارسال پیام به یک کاربر با Retry
+    """
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            if broadcast_type == 'text':
+                await context.bot.send_message(
+                    user_id,
+                    broadcast_content,
+                    parse_mode='Markdown'
+                )
+            elif broadcast_type == 'photo':
+                await context.bot.send_photo(
+                    user_id,
+                    broadcast_content,
+                    caption=broadcast_caption if broadcast_caption else None,
+                    parse_mode='Markdown' if broadcast_caption else None
+                )
+            elif broadcast_type == 'video':
+                await context.bot.send_video(
+                    user_id,
+                    broadcast_content,
+                    caption=broadcast_caption if broadcast_caption else None,
+                    parse_mode='Markdown' if broadcast_caption else None
+                )
+            
+            return 'success', None
+        
+        except Forbidden as e:
+            # کاربر ربات را بلاک کرده
+            return 'blocked', str(e)
+        
+        except RetryAfter as e:
+            # محدودیت Telegram - صبر کن
+            logger.warning(f"⚠️ RetryAfter {e.retry_after}s for user {user_id}")
+            if attempt < RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(e.retry_after)
+            else:
+                return 'rate_limited', str(e)
+        
+        except (TimedOut, NetworkError) as e:
+            # مشکل شبکه - retry
+            if attempt < RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(2 ** attempt)  # exponential backoff
+            else:
+                return 'network_error', str(e)
+        
+        except Exception as e:
+            # خطای دیگر
+            logger.error(f"❌ Error sending to {user_id}: {e}")
+            return 'error', str(e)
+    
+    return 'error', 'Max retries exceeded'
+
+
 async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    🔥 FIX: تایید و ارسال پیام همگانی با Batch Processing
+    🔥 تایید و ارسال پیام همگانی با Batch Processing
     """
     query = update.callback_query
     await query.answer()
@@ -113,103 +177,106 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ خطا! پیامی یافت نشد.")
         return
     
-    # ایجاد پیام Progress
-    progress_message = await query.edit_message_text(
+    total_users = len(users)
+    
+    # پیام اولیه
+    progress_msg = await query.edit_message_text(
         f"⏳ **در حال ارسال...**\n\n"
-        f"📊 پیشرفت: 0/{len(users)} (0%)\n"
+        f"👥 کل: {total_users} کاربر\n"
+        f"📊 پیشرفت: 0%\n"
         f"✅ موفق: 0\n"
-        f"❌ خطا: 0\n"
-        f"🚫 بلاک: 0"
+        f"❌ ناموفق: 0",
+        parse_mode='Markdown'
     )
     
-    # 🔥 Batch Processing با Progress Bar
+    # 🔥 شمارنده‌ها
     success_count = 0
-    failed_count = 0
     blocked_count = 0
+    failed_count = 0
+    rate_limited_count = 0
     
-    BATCH_SIZE = 20  # ارسال 20 تا 20 تا
-    DELAY_BETWEEN_BATCHES = 1  # 1 ثانیه تاخیر بین batch ها
-    DELAY_PER_MESSAGE = 0.05  # 50ms تاخیر بین هر پیام
-    
-    total = len(users)
-    
-    for batch_start in range(0, total, BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, total)
-        batch = users[batch_start:batch_end]
+    # 🔥 Batch Processing
+    for i in range(0, total_users, BATCH_SIZE):
+        batch = users[i:i + BATCH_SIZE]
+        batch_tasks = []
         
-        # ارسال batch فعلی
-        tasks = []
+        # ایجاد task های همزمان برای این batch
         for user in batch:
             user_id = user[0]
-            tasks.append(send_broadcast_message(
-                context, user_id, broadcast_type, 
-                broadcast_content, broadcast_caption
-            ))
+            task = send_message_to_user(
+                context, 
+                user_id, 
+                broadcast_type, 
+                broadcast_content, 
+                broadcast_caption
+            )
+            batch_tasks.append(task)
         
-        # اجرای همزمان با gather
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # اجرای همزمان
+        results = await asyncio.gather(*batch_tasks, return_exceptions=True)
         
         # پردازش نتایج
         for result in results:
-            if isinstance(result, Exception):
-                error_msg = str(result).lower()
-                if any(x in error_msg for x in ["blocked", "deactivated", "not found"]):
+            if isinstance(result, tuple):
+                status, error = result
+                if status == 'success':
+                    success_count += 1
+                elif status == 'blocked':
                     blocked_count += 1
+                elif status == 'rate_limited':
+                    rate_limited_count += 1
                 else:
                     failed_count += 1
-            elif result is True:
-                success_count += 1
             else:
+                # Exception رخ داده
                 failed_count += 1
         
-        # 🔥 بروزرسانی Progress Bar
-        current = batch_end
-        percent = int((current / total) * 100)
-        
-        # محاسبه نوار پیشرفت
-        filled = int(percent / 5)  # هر 5% = یک بلوک
-        bar = "█" * filled + "░" * (20 - filled)
+        # 🔥 به‌روزرسانی Progress
+        processed = min(i + BATCH_SIZE, total_users)
+        progress = int((processed / total_users) * 100)
         
         try:
-            await progress_message.edit_text(
+            await progress_msg.edit_text(
                 f"⏳ **در حال ارسال...**\n\n"
-                f"📊 پیشرفت: {current}/{total} ({percent}%)\n"
-                f"{bar}\n\n"
+                f"👥 کل: {total_users} کاربر\n"
+                f"📊 پیشرفت: {progress}% ({processed}/{total_users})\n\n"
                 f"✅ موفق: {success_count}\n"
-                f"❌ خطا: {failed_count}\n"
-                f"🚫 بلاک: {blocked_count}\n\n"
-                f"⏱ لطفاً صبر کنید..."
+                f"🚫 بلاک: {blocked_count}\n"
+                f"⚠️ Rate Limited: {rate_limited_count}\n"
+                f"❌ خطا: {failed_count}",
+                parse_mode='Markdown'
             )
-        except:
-            pass  # اگه خطای "message not modified" داد
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update progress: {e}")
         
         # تاخیر بین batch ها
-        if batch_end < total:
-            await asyncio.sleep(DELAY_BETWEEN_BATCHES)
+        if i + BATCH_SIZE < total_users:
+            await asyncio.sleep(BATCH_DELAY)
     
     # لاگ broadcast
     log_broadcast(
         update.effective_user.id,
         success_count,
-        failed_count + blocked_count,
-        len(users)
+        blocked_count + failed_count + rate_limited_count,
+        total_users
     )
     
-    # گزارش نهایی
-    success_rate = (success_count / len(users) * 100) if len(users) > 0 else 0
-    
-    final_bar = "█" * 20
+    # 🔥 گزارش نهایی
+    success_rate = (success_count / total_users * 100) if total_users > 0 else 0
     
     report = "✅ **ارسال پیام همگانی تکمیل شد!**\n\n"
-    report += f"{final_bar}\n\n"
-    report += f"📊 **نتایج:**\n"
+    report += f"📊 **نتیجه:**\n"
+    report += f"├ کل: {total_users}\n"
     report += f"├ ✅ موفق: {success_count}\n"
     report += f"├ 🚫 بلاک شده: {blocked_count}\n"
-    report += f"├ ❌ خطا: {failed_count}\n"
-    report += f"└ 📈 نرخ موفقیت: {success_rate:.1f}%\n\n"
-    report += f"📅 {total} کاربر هدف قرار گرفتند"
+    report += f"├ ⚠️ محدودیت: {rate_limited_count}\n"
+    report += f"└ ❌ خطا: {failed_count}\n\n"
+    report += f"📈 **نرخ موفقیت:** {success_rate:.1f}%\n\n"
     
-    await progress_message.edit_text(
+    if rate_limited_count > 0:
+        report += f"⚠️ {rate_limited_count} کاربر به دلیل محدودیت Telegram پیام دریافت نکردند.\n"
+    
+    await progress_msg.edit_text(
         report,
         parse_mode='Markdown',
         reply_markup=admin_main_keyboard()
@@ -217,56 +284,6 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # پاک کردن داده‌های موقت
     context.user_data.clear()
-
-
-async def send_broadcast_message(context, user_id, msg_type, content, caption):
-    """
-    🔥 FIX: ارسال یک پیام broadcast با retry
-    """
-    MAX_RETRIES = 2
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            if msg_type == 'text':
-                await context.bot.send_message(
-                    user_id,
-                    content,
-                    parse_mode='Markdown'
-                )
-            elif msg_type == 'photo':
-                await context.bot.send_photo(
-                    user_id,
-                    content,
-                    caption=caption if caption else None,
-                    parse_mode='Markdown' if caption else None
-                )
-            elif msg_type == 'video':
-                await context.bot.send_video(
-                    user_id,
-                    content,
-                    caption=caption if caption else None,
-                    parse_mode='Markdown' if caption else None
-                )
-            
-            return True
-            
-        except (Forbidden, BadRequest) as e:
-            # خطاهای غیرقابل retry
-            raise e
-            
-        except TelegramError as e:
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(0.5)  # تاخیر قبل retry
-            else:
-                raise e
-        
-        except Exception as e:
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(0.5)
-            else:
-                raise e
-    
-    return False
 
 
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):

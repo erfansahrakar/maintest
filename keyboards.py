@@ -1,17 +1,17 @@
 """
 کیبوردها و دکمه‌های ربات
-🔴 FIX باگ 3: تغییر متن‌ها از "پک" به "عدد"
+✅ بروزرسانی شده با دکمه داشبورد
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 def admin_main_keyboard():
-    """منوی اصلی ادمین"""
+    """منوی اصلی ادمین - با دکمه داشبورد"""
     keyboard = [
+        ["🎛 داشبورد", "📊 آمار"],  # 🆕 دکمه داشبورد
         ["➕ افزودن محصول", "📦 لیست محصولات"],
         ["📋 سفارشات جدید", "💳 تایید پرداخت‌ها"],
         ["🎁 مدیریت تخفیف‌ها", "📢 پیام همگانی"],
-        ["📊 آمار", "📈 گزارش‌های تحلیلی"],
-        ["💾 بکاپ دستی"]
+        ["📈 گزارش‌های تحلیلی", "💾 بکاپ دستی"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -46,11 +46,10 @@ def product_inline_keyboard(product_id, packs):
 
 
 def cart_keyboard(cart_items):
-    """🔴 FIX باگ 3: دکمه‌های سبد خرید (نمایش عدد)"""
+    """دکمه‌های سبد خرید"""
     keyboard = []
     for item in cart_items:
         cart_id, product_name, pack_name, pack_qty, price, quantity = item
-        # 🔴 quantity حالا = تعداد عدد
         keyboard.append([InlineKeyboardButton(
             f"🗑 حذف {product_name} ({pack_name}) - {quantity} عدد",
             callback_data=f"remove_cart:{cart_id}"
@@ -210,7 +209,7 @@ def confirm_info_keyboard():
 
 
 def order_items_removal_keyboard(order_id, items):
-    """🔴 FIX باگ 3: دکمه‌های مدیریت آیتم‌های سفارش (نمایش عدد)"""
+    """دکمه‌های مدیریت آیتم‌های سفارش"""
     keyboard = []
     
     for idx, item in enumerate(items):
@@ -219,16 +218,12 @@ def order_items_removal_keyboard(order_id, items):
         quantity = item.get('quantity', 0)
         pack_quantity = item.get('pack_quantity', 1)
         
-        # ردیف اطلاعات آیتم - نمایش عدد
         info_text = f"📦 {product_name} - {pack_name} (×{quantity} عدد)"
         keyboard.append([InlineKeyboardButton(info_text, callback_data=f"item_info:{idx}")])
         
-        # ردیف دکمه‌های عملیات
         row = []
-        # 🔴 FIX: ➖ کم می‌کنه به اندازه pack_quantity
         row.append(InlineKeyboardButton(f"➖ ({pack_quantity})", callback_data=f"decrease_item:{order_id}:{idx}"))
         row.append(InlineKeyboardButton("✏️ تعداد", callback_data=f"edit_item_qty:{order_id}:{idx}"))
-        # 🔴 FIX: ➕ اضافه می‌کنه به اندازه pack_quantity
         row.append(InlineKeyboardButton(f"➕ ({pack_quantity})", callback_data=f"increase_item:{order_id}:{idx}"))
         row.append(InlineKeyboardButton("❌ حذف", callback_data=f"remove_item:{order_id}:{idx}"))
         keyboard.append(row)
@@ -264,11 +259,10 @@ def analytics_menu_keyboard():
 
 
 def quantity_keyboard(product_id, pack_id):
-    """🔴 FIX باگ 3: دکمه‌های انتخاب تعداد (متن تغییر کرده)"""
+    """دکمه‌های انتخاب تعداد"""
     keyboard = []
     row = []
     
-    # دکمه‌های 1 تا 10 بار کلیک
     for i in range(1, 11):
         row.append(InlineKeyboardButton(
             f"{i}×", 

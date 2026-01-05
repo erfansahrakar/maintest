@@ -6,11 +6,9 @@ matplotlib==3.8.2
 numpy==1.26.3
 python-dotenv==1.0.0
 psutil==5.9.6
+jdatetime>=4.1.0
 
-# دیتابیس (SQLite داخلی پایتون است)
-# اما در صورت نیاز به PostgreSQL یا MySQL:
-# psycopg2-binary==2.9.9
-# PyMySQL==1.1.0
-
-# اختیاری: برای بهبود عملکرد
-# pillow==10.1.0  # اگر می‌خواهید تصاویر را پردازش کنید
+pip install jdatetime
+psycopg2-binary==2.9.9
+PyMySQL==1.1.0
+pillow==10.1.0

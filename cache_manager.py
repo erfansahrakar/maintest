@@ -4,9 +4,11 @@
 ✅ کش آمار
 ✅ TTL (Time To Live)
 ✅ Invalidation خودکار
+✅ FIX: Memory Leak در Cleanup Thread
 """
 import time
 import logging
+import atexit
 from typing import Any, Optional, Dict, Callable
 from functools import wraps
 from datetime import datetime, timedelta
@@ -321,7 +323,7 @@ class DatabaseCache:
         self.cache.invalidate(f"cart:{user_id}")
 
 
-# ==================== Auto Cleanup ====================
+# ==================== Auto Cleanup - ✅ FIX Memory Leak ====================
 
 import threading
 
@@ -339,12 +341,14 @@ class CacheCleanupThread(threading.Thread):
         while self.running:
             time.sleep(self.interval)
             try:
-                self.cache_manager.cleanup()
+                if self.running:  # ✅ یک چک دیگه قبل cleanup
+                    self.cache_manager.cleanup()
             except Exception as e:
                 logger.error(f"Error in cache cleanup: {e}")
     
     def stop(self):
-        """توقف thread"""
+        """✅ FIX: توقف thread"""
+        logger.info("🛑 Stopping cache cleanup thread...")
         self.running = False
 
 
@@ -352,4 +356,17 @@ class CacheCleanupThread(threading.Thread):
 cleanup_thread = CacheCleanupThread(cache_manager, interval=300)
 cleanup_thread.start()
 
-logger.info("✅ Cache cleanup thread started")
+
+# ✅ FIX: رجیستر کردن cleanup در exit
+def cleanup_on_exit():
+    """✅ FIX: پاکسازی در هنگام خروج"""
+    logger.info("🧹 Cleaning up cache on exit...")
+    if cleanup_thread.is_alive():
+        cleanup_thread.stop()
+        cleanup_thread.join(timeout=5)
+        logger.info("✅ Cache cleanup thread stopped")
+
+
+atexit.register(cleanup_on_exit)
+
+logger.info("✅ Cache cleanup thread started with exit handler")

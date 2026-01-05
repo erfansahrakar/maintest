@@ -18,6 +18,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_cart_lock = threading.Lock()
+
 
 class DatabaseConnectionPool:
     """مدیریت Connection Pool برای دیتابیس"""
@@ -448,30 +450,59 @@ class Database:
         
     # ==================== سبد خرید ====================
     
-    def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
+def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
+    """
+    🔴 FIX: افزودن به سبد با Lock برای جلوگیری از duplicate
+    """
+    # 🔴 استفاده از Lock برای Thread Safety
+    with _cart_lock:
         conn = self._get_conn()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?", 
-                      (user_id, product_id, pack_id))
-        existing = cursor.fetchone()
+        # 🔴 بررسی وجود آیتم با Transaction
+        cursor.execute("BEGIN IMMEDIATE")  # Lock کل جدول
         
-        pack = self.get_pack(pack_id)
-        if not pack:
-            return
-        
-        pack_quantity = pack[3]
-        actual_quantity = quantity * pack_quantity
-        
-        if existing:
-            new_quantity = existing[1] + actual_quantity
-            cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_quantity, existing[0]))
-        else:
-            cursor.execute("INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)", 
-                         (user_id, product_id, pack_id, actual_quantity))
-        
-        conn.commit()
-        self._invalidate_cache(f"cart:{user_id}")
+        try:
+            cursor.execute("""
+                SELECT id, quantity FROM cart 
+                WHERE user_id = ? AND product_id = ? AND pack_id = ?
+            """, (user_id, product_id, pack_id))
+            
+            existing = cursor.fetchone()
+            
+            pack = self.get_pack(pack_id)
+            if not pack:
+                cursor.execute("ROLLBACK")
+                return
+            
+            pack_quantity = pack[3]
+            actual_quantity = quantity * pack_quantity
+            
+            if existing:
+                # Update موجود
+                new_quantity = existing[1] + actual_quantity
+                cursor.execute(
+                    "UPDATE cart SET quantity = ? WHERE id = ?", 
+                    (new_quantity, existing[0])
+                )
+            else:
+                # Insert جدید
+                cursor.execute("""
+                    INSERT INTO cart (user_id, product_id, pack_id, quantity) 
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, product_id, pack_id, actual_quantity))
+            
+            cursor.execute("COMMIT")
+            self._invalidate_cache(f"cart:{user_id}")
+            
+            print(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
+            
+        except Exception as e:
+            cursor.execute("ROLLBACK")
+            print(f"❌ Cart error: {e}")
+            raise
+
+
     
     def get_cart(self, user_id: int):
         self.clean_invalid_cart_items(user_id)

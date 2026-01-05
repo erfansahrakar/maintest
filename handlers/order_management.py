@@ -41,7 +41,7 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔴 FIX: ➖ کاهش تعداد به اندازه pack_quantity"""
+    """🔴 FIX: کاهش تعداد با چک آیتم آخر"""
     query = update.callback_query
     await query.answer()
     
@@ -59,20 +59,27 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
-    # 🔴 FIX باگ 3: کاهش به اندازه pack_quantity
     pack_quantity = items[item_index].get('pack_quantity', 1)
     items[item_index]['quantity'] -= pack_quantity
     
-    # اگر تعداد صفر یا منفی شد، حذف آیتم
+    # 🔴 FIX: اگر تعداد صفر یا منفی شد
     if items[item_index]['quantity'] <= 0:
+        # 🔴 چک کردن آیتم آخر
         if len(items) <= 1:
-            await query.answer("⚠️ نمی‌توانید آخرین آیتم را حذف کنید! از 'رد کامل' استفاده کنید.", show_alert=True)
-            return
+            await query.answer(
+                "⚠️ نمی‌توانید آخرین آیتم را حذف کنید!\n"
+                "از 'رد کامل سفارش' استفاده کنید.",
+                show_alert=True
+            )
+            # 🔴 برگردوندن تعداد
+            items[item_index]['quantity'] += pack_quantity
+            return  # جلوگیری از حذف
         
+        # حذف آیتم
         removed_item = items.pop(item_index)
         await query.answer(f"🗑 {removed_item['product']} حذف شد!", show_alert=True)
     
-    # 🔴 FIX باگ 2: محاسبه صحیح قیمت
+    # بروزرسانی قیمت‌ها
     await update_order_prices(db, order_id, items, discount_code)
     
     # نمایش لیست به‌روز
@@ -111,6 +118,7 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
         f"🔢 تعداد فعلی: {item['quantity']} عدد\n\n"
         f"لطفاً تعداد جدید را وارد کنید (به عدد):\n"
         f"مثال: 3 یا 12 یا 18",
+        
         parse_mode='Markdown',
         reply_markup=cancel_keyboard()
     )

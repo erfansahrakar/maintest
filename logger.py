@@ -2,6 +2,7 @@
 سیستم Logging حرفه‌ای برای ربات
 🔴 مرحله 3: Logging
 ✅ ثبت رویدادها، خطاها، و عملیات مهم
+✅ FIX باگ 10: بهبود Log Rotation با backup بیشتر
 """
 import logging
 import os
@@ -17,10 +18,11 @@ LOG_FOLDER = "logs"
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
-# سایز حداکثر هر فایل لاگ (10 MB)
-MAX_LOG_SIZE = 10 * 1024 * 1024
-# تعداد backup فایل‌ها
-BACKUP_COUNT = 5
+# ✅ FIX باگ 10: سایز حداکثر هر فایل لاگ (20 MB - افزایش یافت)
+MAX_LOG_SIZE = 20 * 1024 * 1024
+
+# ✅ FIX باگ 10: تعداد backup فایل‌ها (افزایش از 5 به 10)
+BACKUP_COUNT = 10
 
 
 # ==================== ایجاد پوشه لاگ ====================
@@ -42,6 +44,7 @@ def setup_logger(
 ) -> logging.Logger:
     """
     ایجاد و تنظیم logger
+    ✅ FIX باگ 10: بهبود Rotation با backup بیشتر
     
     Args:
         name: نام logger
@@ -72,12 +75,12 @@ def setup_logger(
     
     # ==================== File Handler - All Logs ====================
     if log_to_file:
-        # لاگ همه چیز (با rotation بر اساس سایز)
+        # ✅ FIX باگ 10: لاگ همه چیز (با rotation بهتر)
         all_logs_file = os.path.join(LOG_FOLDER, "bot_all.log")
         all_handler = RotatingFileHandler(
             all_logs_file,
             maxBytes=MAX_LOG_SIZE,
-            backupCount=BACKUP_COUNT,
+            backupCount=BACKUP_COUNT,  # ✅ 10 فایل بکاپ
             encoding='utf-8'
         )
         all_handler.setLevel(logging.DEBUG)
@@ -90,7 +93,7 @@ def setup_logger(
         error_handler = RotatingFileHandler(
             error_logs_file,
             maxBytes=MAX_LOG_SIZE,
-            backupCount=BACKUP_COUNT,
+            backupCount=BACKUP_COUNT,  # ✅ 10 فایل بکاپ
             encoding='utf-8'
         )
         error_handler.setLevel(logging.ERROR)
@@ -98,13 +101,13 @@ def setup_logger(
         logger.addHandler(error_handler)
         
         # ==================== File Handler - Daily Rotation ====================
-        # لاگ روزانه (یه فایل برای هر روز)
+        # ✅ FIX باگ 10: لاگ روزانه با backup بیشتر (60 روز)
         daily_logs_file = os.path.join(LOG_FOLDER, "bot_daily.log")
         daily_handler = TimedRotatingFileHandler(
             daily_logs_file,
             when='midnight',
             interval=1,
-            backupCount=30,  # نگه‌داری 30 روز
+            backupCount=60,  # ✅ FIX: نگه‌داری 60 روز (بجای 30)
             encoding='utf-8'
         )
         daily_handler.setLevel(logging.INFO)
@@ -334,3 +337,7 @@ if __name__ == "__main__":
         print("در حال انجام کار...")
     
     print("\n✅ لاگ‌ها در پوشه 'logs' ذخیره شدند!")
+    print("📊 تنظیمات بهبود یافته:")
+    print(f"   - حداکثر سایز: {MAX_LOG_SIZE / (1024*1024):.0f} MB")
+    print(f"   - تعداد backup: {BACKUP_COUNT} فایل")
+    print(f"   - نگهداری روزانه: 60 روز")

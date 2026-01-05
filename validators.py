@@ -1,6 +1,8 @@
 """
 اعتبارسنجی ورودی‌های کاربر
 🔒 امنیت: جلوگیری از ورودی‌های مخرب و نامعتبر
+✅ FIX: Max price به 100 میلیون کاهش یافت
+✅ FIX: sanitize_input حذف شد (prepared statements کافیه)
 """
 import re
 from datetime import datetime
@@ -54,14 +56,15 @@ class Validators:
         return True, None
     
     @staticmethod
-    def validate_price(price: str, min_value: float = 0, max_value: float = 1_000_000_000) -> Tuple[bool, Optional[str], Optional[float]]:
+    def validate_price(price: str, min_value: float = 0, max_value: float = 100_000_000) -> Tuple[bool, Optional[str], Optional[float]]:
         """
         اعتبارسنجی قیمت
+        ✅ FIX: max_value به 100 میلیون کاهش یافت (برای مانتو منطقی‌تره!)
         
         Args:
             price: قیمت به صورت رشته
             min_value: حداقل مقدار مجاز
-            max_value: حداکثر مقدار مجاز
+            max_value: حداکثر مقدار مجاز (پیش‌فرض: 100 میلیون تومان)
             
         Returns:
             (is_valid, error_message, parsed_price)
@@ -255,34 +258,6 @@ class Validators:
         return True, None
     
     @staticmethod
-    def sanitize_input(text: str) -> str:
-        """
-        پاکسازی ورودی از کاراکترهای مخرب
-        
-        Args:
-            text: متن ورودی
-            
-        Returns:
-            متن پاکسازی شده
-        """
-        if not text:
-            return ""
-        
-        # حذف کاراکترهای خطرناک برای SQL Injection
-        dangerous_chars = ["'", '"', ";", "--", "/*", "*/", "xp_", "sp_", "exec", "execute"]
-        
-        cleaned = text
-        for char in dangerous_chars:
-            cleaned = cleaned.replace(char, "")
-        
-        # محدود کردن طول
-        max_length = 1000
-        if len(cleaned) > max_length:
-            cleaned = cleaned[:max_length]
-        
-        return cleaned.strip()
-    
-    @staticmethod
     def validate_product_name(name: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         اعتبارسنجی نام محصول
@@ -358,6 +333,13 @@ def safe_float(value: str, default: float = 0.0) -> float:
         return default
 
 
+# ✅ FIX: sanitize_input حذف شد
+# دلیل: استفاده از prepared statements کافیه و این تابع گمراه کننده است
+# همیشه از prepared statements استفاده کنید:
+# cursor.execute("INSERT INTO table (col) VALUES (?)", (value,))  # ✅ ایمن
+# cursor.execute(f"INSERT INTO table (col) VALUES ('{value}')")  # ❌ خطرناک!
+
+
 # ==================== نمونه استفاده ====================
 if __name__ == "__main__":
     # تست اعتبارسنجی‌ها
@@ -372,8 +354,8 @@ if __name__ == "__main__":
     
     print("\n" + "="*50 + "\n")
     
-    # تست قیمت
-    price_tests = ["50000", "50,000", "abc", "-100", "2000000000"]
+    # تست قیمت - با max جدید
+    price_tests = ["50000", "50,000", "abc", "-100", "150000000"]  # 150 میلیون
     for price in price_tests:
         valid, msg, parsed = Validators.validate_price(price)
         status = "✅" if valid else "❌"

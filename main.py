@@ -1,12 +1,6 @@
 """
 ربات فروشگاه مانتو تلگرام
-✅ FIX باگ 11: Analytics بهینه شده
-✅ FIX باگ 12: حذف duplicate error handler
-✅ نسخه بروزرسانی شده با:
-- Health Check
-- Better Error Handling
-- Caching
-- Admin Dashboard
+
 """
 import logging
 import signal
@@ -289,11 +283,16 @@ def main():
         confirm_modified_order
     )
     
+    # 🆕 Import توابع جدید با توضیحات
     from handlers.order_management import (
         increase_item_quantity,
         decrease_item_quantity,
         edit_item_quantity_start,
-        edit_item_quantity_received
+        edit_item_quantity_received,
+        edit_item_notes_received,
+        skip_item_notes,
+        cancel_item_edit,
+        EDIT_ITEM_NOTES
     )
     
     from handlers.discount import (
@@ -473,10 +472,16 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
+    # 🆕 ConversationHandler با state جدید برای توضیحات
     edit_item_qty_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_item_quantity_start, pattern="^edit_item_qty:")],
         states={
             EDIT_ITEM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_quantity_received)],
+            EDIT_ITEM_NOTES: [  # 🆕 State جدید
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_notes_received),
+                CallbackQueryHandler(skip_item_notes, pattern="^skip_notes:"),
+                CallbackQueryHandler(cancel_item_edit, pattern="^cancel_edit:")
+            ],
         },
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
@@ -532,7 +537,7 @@ def main():
     application.add_handler(create_discount_conv)
     application.add_handler(broadcast_conv)
     application.add_handler(user_discount_conv)
-    application.add_handler(edit_item_qty_conv)
+    application.add_handler(edit_item_qty_conv)  # 🆕 با state جدید
     application.add_handler(finalize_order_conv)
     application.add_handler(edit_address_conv)
     application.add_handler(edit_user_info_conv)
@@ -603,6 +608,7 @@ def main():
     logger.info("✅ Admin Dashboard فعال")
     logger.info("✅ FIX باگ 11: Analytics بهینه شده")
     logger.info("✅ FIX باگ 12: Duplicate error handler حذف شد")
+    logger.info("✅ FIX: قابلیت توضیحات ادمین برای آیتم‌ها اضافه شد")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)

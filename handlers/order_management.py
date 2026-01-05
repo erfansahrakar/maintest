@@ -3,7 +3,7 @@
 
 """
 import json
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
 from states import EDIT_ITEM_QUANTITY
@@ -11,6 +11,9 @@ from keyboards import order_items_removal_keyboard, cancel_keyboard, admin_main_
 import logging
 
 logger = logging.getLogger(__name__)
+
+# State جدید برای توضیحات
+EDIT_ITEM_NOTES = 999
 
 
 async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,7 +63,10 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔥 کاهش تعداد با چک آیتم آخر"""
+    """
+    🔥 کاهش تعداد با چک آیتم آخر
+    ✅ FIX: جلوگیری از کم شدن زیر 1 پک
+    """
     query = update.callback_query
     
     try:
@@ -90,29 +96,20 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
             return
         
         pack_quantity = items[item_index].get('pack_quantity', 1)
-        items[item_index]['quantity'] -= pack_quantity
+        current_quantity = items[item_index]['quantity']
         
-        # 🔥 اگر تعداد صفر یا منفی شد
-        if items[item_index]['quantity'] <= 0:
-            # 🔴 چک کردن آیتم آخر - اینجا مشکل بود!
-            if len(items) <= 1:
-                await query.answer(
-                    "⚠️ نمی‌توانید آخرین آیتم را با این دکمه حذف کنید!\n\n"
-                    "💡 برای رد کامل سفارش از دکمه 'رد کامل سفارش' استفاده کنید.",
-                    show_alert=True
-                )
-                # 🔴 FIX: برگردوندن تعداد
-                items[item_index]['quantity'] += pack_quantity
-                return  # 🔴 جلوگیری از حذف
-            
-            # حذف آیتم
-            removed_item = items.pop(item_index)
+        # ✅ FIX: چک کردن اگه فقط 1 پک مونده
+        if current_quantity <= pack_quantity:
             await query.answer(
-                f"🗑 {removed_item['product']} حذف شد!",
+                "⚠️ تعداد نمی‌تواند کمتر از 1 پک شود!\n\n"
+                "💡 برای حذف این آیتم از دکمه '🗑 حذف آیتم' استفاده کنید.",
                 show_alert=True
             )
-        else:
-            await query.answer()
+            return  # 🔴 جلوگیری از کم شدن
+        
+        # کم کردن تعداد
+        items[item_index]['quantity'] -= pack_quantity
+        await query.answer()
         
         # بروزرسانی قیمت‌ها
         await update_order_prices(db, order_id, items, discount_code)
@@ -151,6 +148,7 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
             return ConversationHandler.END
         
         item = items[item_index]
+        pack_quantity = item.get('pack_quantity', 1)
         
         context.user_data['editing_order_id'] = order_id
         context.user_data['editing_item_index'] = item_index
@@ -159,9 +157,11 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
         await query.message.reply_text(
             f"✏️ **ویرایش تعداد**\n\n"
             f"📦 {item['product']} - {item['pack']}\n"
-            f"🔢 تعداد فعلی: {item['quantity']} عدد\n\n"
-            f"💡 لطفاً تعداد جدید را وارد کنید (به عدد):\n"
-            f"مثال: 6 یا 12 یا 18\n\n"
+            f"🔢 تعداد فعلی: {item['quantity']} عدد\n"
+            f"📦 هر پک: {pack_quantity} عدد\n\n"
+            f"💡 لطفاً تعداد جدید را به **عدد** وارد کنید:\n"
+            f"مثال: 3، 6، 12 یا هر عدد دیگری\n\n"
+            f"ℹ️ می‌توانید هر عددی (حتی کمتر از پک) وارد کنید\n"
             f"⚠️ برای حذف آیتم، عدد 0 وارد کنید.",
             parse_mode='Markdown',
             reply_markup=cancel_keyboard()
@@ -176,7 +176,7 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
 
 
 async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت تعداد جدید"""
+    """دریافت تعداد جدید - بدون محدودیت مضرب"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         context.user_data.clear()
@@ -241,46 +241,61 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
                 parse_mode='Markdown',
                 reply_markup=admin_main_keyboard()
             )
-        else:
-            # تغییر تعداد
-            old_qty = items[item_index]['quantity']
-            items[item_index]['quantity'] = new_quantity
+            
+            # 🔥 محاسبه صحیح قیمت
+            await update_order_prices(db, order_id, items, discount_code)
+            
+            # نمایش لیست به‌روز
+            text = "📋 **لیست به‌روز شده:**\n\n"
+            
+            for idx, item in enumerate(items):
+                text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
+                text += f"   🔢 تعداد: {item['quantity']} عدد\n"
+                text += f"   💰 {item['price']:,.0f} تومان\n\n"
+            
+            order_updated = db.get_order(order_id)
+            final_price_updated = order_updated[5]
+            
+            text += f"💳 **مبلغ نهایی جدید: {final_price_updated:,.0f} تومان**"
             
             await update.message.reply_text(
-                f"✅ تعداد از **{old_qty}** عدد به **{new_quantity}** عدد تغییر کرد!",
+                text,
                 parse_mode='Markdown',
-                reply_markup=admin_main_keyboard()
+                reply_markup=order_items_removal_keyboard(order_id, items)
             )
+            
+            context.user_data.clear()
+            return ConversationHandler.END
         
-        # 🔥 محاسبه صحیح قیمت
-        await update_order_prices(db, order_id, items, discount_code)
-        
-        # نمایش لیست به‌روز
-        text = "📋 **لیست به‌روز شده:**\n\n"
-        
-        for idx, item in enumerate(items):
-            text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-            text += f"   🔢 تعداد: {item['quantity']} عدد\n"
-            text += f"   💰 {item['price']:,.0f} تومان\n\n"
-        
-        order_updated = db.get_order(order_id)
-        final_price_updated = order_updated[5]
-        
-        text += f"💳 **مبلغ نهایی جدید: {final_price_updated:,.0f} تومان**"
-        
-        await update.message.reply_text(
-            text,
-            parse_mode='Markdown',
-            reply_markup=order_items_removal_keyboard(order_id, items)
-        )
-        
-        context.user_data.clear()
-        return ConversationHandler.END
+        else:
+            # ✅ ذخیره تعداد جدید و درخواست توضیحات
+            context.user_data['new_quantity'] = new_quantity
+            context.user_data['old_quantity'] = items[item_index]['quantity']
+            
+            # کیبورد برای رد کردن توضیحات
+            keyboard = [
+                [InlineKeyboardButton("⏭ رد کردن (بدون توضیحات)", callback_data=f"skip_notes:{order_id}:{item_index}")],
+                [InlineKeyboardButton("❌ لغو", callback_data=f"cancel_edit:{order_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ تعداد به **{new_quantity}** عدد تغییر کرد!\n\n"
+                f"📝 **توضیحات اختیاری:**\n\n"
+                f"اگر می‌خواهید توضیحی اضافه کنید (مثل رنگ‌های موجود)، "
+                f"لطفاً آن را تایپ کنید.\n\n"
+                f"مثال: «مشکی و آبی» یا «سایز L و XL»\n\n"
+                f"💡 این توضیحات برای مشتری نمایش داده می‌شود.",
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            
+            return EDIT_ITEM_NOTES
     
     except ValueError:
         await update.message.reply_text(
             "❌ لطفاً یک عدد صحیح وارد کنید!\n"
-            "مثال: 6 یا 12 یا 0 (برای حذف)",
+            "مثال: 3 یا 6 یا 0 (برای حذف)",
             reply_markup=cancel_keyboard()
         )
         return EDIT_ITEM_QUANTITY
@@ -293,6 +308,156 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
         )
         context.user_data.clear()
         return ConversationHandler.END
+
+
+async def edit_item_notes_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت توضیحات اختیاری"""
+    notes = update.message.text.strip()
+    
+    order_id = context.user_data.get('editing_order_id')
+    item_index = context.user_data.get('editing_item_index')
+    discount_code = context.user_data.get('editing_discount_code')
+    new_quantity = context.user_data.get('new_quantity')
+    old_quantity = context.user_data.get('old_quantity')
+    
+    db = context.bot_data['db']
+    order = db.get_order(order_id)
+    
+    if not order:
+        await update.message.reply_text(
+            "❌ سفارش یافت نشد!",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at = order
+    items = json.loads(items_json)
+    
+    # تغییر تعداد و افزودن توضیحات
+    items[item_index]['quantity'] = new_quantity
+    items[item_index]['admin_notes'] = notes  # ذخیره توضیحات
+    
+    # 🔥 محاسبه صحیح قیمت
+    await update_order_prices(db, order_id, items, discount_code)
+    
+    await update.message.reply_text(
+        f"✅ **تغییرات ثبت شد!**\n\n"
+        f"تعداد: {old_quantity} → {new_quantity} عدد\n"
+        f"📝 توضیحات: {notes}",
+        parse_mode='Markdown',
+        reply_markup=admin_main_keyboard()
+    )
+    
+    # نمایش لیست به‌روز
+    await show_updated_items_with_notes(update, order_id, items, db)
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def skip_item_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """رد کردن توضیحات"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split(":")
+    order_id = int(data[1])
+    item_index = int(data[2])
+    
+    new_quantity = context.user_data.get('new_quantity')
+    old_quantity = context.user_data.get('old_quantity')
+    discount_code = context.user_data.get('editing_discount_code')
+    
+    db = context.bot_data['db']
+    order = db.get_order(order_id)
+    
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        context.user_data.clear()
+        return ConversationHandler.END
+    
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at = order
+    items = json.loads(items_json)
+    
+    # تغییر فقط تعداد (بدون توضیحات)
+    items[item_index]['quantity'] = new_quantity
+    items[item_index]['admin_notes'] = None  # بدون توضیحات
+    
+    # 🔥 محاسبه صحیح قیمت
+    await update_order_prices(db, order_id, items, discount_code)
+    
+    await query.edit_message_text(
+        f"✅ تعداد از **{old_quantity}** عدد به **{new_quantity}** عدد تغییر کرد!",
+        parse_mode='Markdown'
+    )
+    
+    # نمایش لیست به‌روز
+    await show_updated_items_with_notes(query, order_id, items, db)
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def cancel_item_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """لغو ویرایش"""
+    query = update.callback_query
+    await query.answer("❌ لغو شد")
+    
+    await query.edit_message_text(
+        "❌ ویرایش لغو شد.",
+        reply_markup=admin_main_keyboard()
+    )
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def show_updated_items_with_notes(update_or_query, order_id, items, db):
+    """نمایش لیست با توضیحات"""
+    try:
+        text = "📋 **لیست به‌روز شده:**\n\n"
+        
+        for idx, item in enumerate(items):
+            text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
+            text += f"   🔢 تعداد: {item['quantity']} عدد\n"
+            
+            # نمایش توضیحات اگر وجود داشت
+            if item.get('admin_notes'):
+                text += f"   📝 توضیحات: {item['admin_notes']}\n"
+            
+            text += f"   💰 {item['price']:,.0f} تومان\n\n"
+        
+        order = db.get_order(order_id)
+        final_price = order[5]
+        
+        text += f"💳 **جمع کل: {final_price:,.0f} تومان**\n\n"
+        
+        # 🔥 پیام هشدار اگر 1 آیتم مونده
+        if len(items) == 1:
+            text += "⚠️ **این آخرین آیتم است!**\n"
+            text += "برای رد کامل از دکمه زیر استفاده کنید.\n\n"
+        else:
+            text += "می‌خواهید تغییر دیگری بدهید؟"
+        
+        # تشخیص query یا message
+        if hasattr(update_or_query, 'message') and hasattr(update_or_query, 'edit_message_text'):
+            # اگر query بود
+            await update_or_query.edit_message_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=order_items_removal_keyboard(order_id, items)
+            )
+        else:
+            # اگر message بود
+            await update_or_query.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=order_items_removal_keyboard(order_id, items)
+            )
+    
+    except Exception as e:
+        logger.error(f"❌ Error in show_updated_items_with_notes: {e}", exc_info=True)
 
 
 async def update_order_prices(db, order_id, items, discount_code=None):

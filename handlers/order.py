@@ -1,6 +1,7 @@
 """
 مدیریت سفارشات و پرداخت‌ها
 🔴 FIX باگ 3: نمایش عدد به جای پک
+✅ FIX: پیام بهتر بعد Reject (Cart پاک نمیشه)
 """
 import json
 from telegram import Update
@@ -213,11 +214,13 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
                 
                 new_final = new_total - new_discount
     
-    db.cursor.execute(
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
         "UPDATE orders SET items = ?, total_price = ?, discount_amount = ?, final_price = ? WHERE id = ?",
         (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id)
     )
-    db.conn.commit()
+    conn.commit()
     
     from keyboards import order_items_removal_keyboard
     
@@ -241,7 +244,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """رد کامل سفارش"""
+    """✅ FIX: رد کامل سفارش با پیام بهتر"""
     query = update.callback_query
     await query.answer("❌ سفارش کامل رد شد")
     
@@ -253,9 +256,13 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order = db.get_order(order_id)
     user_id = order[1]
     
+    # ✅ FIX: پیام بهتر - Cart رو پاک نمی‌کنیم
     await context.bot.send_message(
         user_id,
-        MESSAGES["order_rejected"],
+        "❌ متأسفانه سفارش شما رد شد.\n\n"
+        "💡 محصولات همچنان در سبد شما باقی هستند.\n"
+        "می‌توانید تغییرات لازم را اعمال کرده و دوباره سفارش دهید.\n\n"
+        "📞 برای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
         reply_markup=user_main_keyboard()
     )
     
@@ -398,9 +405,12 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
     """نمایش رسیدهای در انتظار تایید"""
     db = context.bot_data['db']
     
-    query_result = db.cursor.execute(
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
         "SELECT * FROM orders WHERE status = 'receipt_sent' ORDER BY created_at DESC"
-    ).fetchall()
+    )
+    query_result = cursor.fetchall()
     
     if not query_result:
         await update.message.reply_text("هیچ رسیدی در انتظار تایید نیست.")
@@ -460,7 +470,6 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
-
     )
     
 
@@ -489,4 +498,4 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
-    )
+)

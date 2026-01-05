@@ -1,7 +1,9 @@
 """
 سیستم Rate Limiting برای جلوگیری از spam و حملات DoS
+✅ اصلاح شده: global rate limit دیگه exception throw نمی‌کنه
+✅ بهبود error handling
 🛡️ محدودیت‌ها:
-- 10 پیام در 10 ثانیه
+- 20 پیام در دقیقه (سراسری)
 - 3 سفارش در ساعت
 - 5 امتحان کد تخفیف در دقیقه
 """
@@ -68,7 +70,7 @@ class RateLimiter:
             oldest_request = self._user_requests[user_id][0]
             remaining_time = int(window_seconds - (time.time() - oldest_request)) + 1
     
-            # 🆕 لاگ محدودیت
+            # لاگ محدودیت
             log_rate_limit(user_id, "general", remaining_time)
     
             return False, remaining_time
@@ -99,7 +101,10 @@ class RateLimiter:
         if request_count >= max_requests:
             oldest_request = self._action_requests[key][0]
             remaining_time = int(window_seconds - (time.time() - oldest_request)) + 1
-            logger.warning(f"Action limit exceeded for user {user_id}, action '{action}': {request_count}/{max_requests}")
+            
+            log_rate_limit(user_id, action, remaining_time)
+            logger.warning(f"⚠️ Action limit exceeded for user {user_id}, action '{action}': {request_count}/{max_requests}")
+            
             return False, remaining_time
         
         # ثبت درخواست جدید
@@ -116,7 +121,21 @@ class RateLimiter:
         for key in keys_to_delete:
             del self._action_requests[key]
         
-        logger.info(f"Rate limits reset for user {user_id}")
+        logger.info(f"✅ Rate limits reset for user {user_id}")
+    
+    def get_stats(self, user_id: int) -> dict:
+        """دریافت آمار محدودیت‌های یک کاربر"""
+        stats = {
+            'user_id': user_id,
+            'general_requests': len(self._user_requests.get(user_id, [])),
+            'actions': {}
+        }
+        
+        for (uid, action), requests in self._action_requests.items():
+            if uid == user_id:
+                stats['actions'][action] = len(requests)
+        
+        return stats
 
 
 # نمونه سراسری
@@ -137,6 +156,9 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 10):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+            if not update.effective_user:
+                return await func(update, context, *args, **kwargs)
+            
             user_id = update.effective_user.id
             
             allowed, remaining_time = rate_limiter.check_rate_limit(
@@ -150,13 +172,16 @@ def rate_limit(max_requests: int = 10, window_seconds: int = 10):
                     f"📌 محدودیت: {max_requests} درخواست در {window_seconds} ثانیه"
                 )
                 
-                if update.message:
-                    await update.message.reply_text(warning_msg, parse_mode='Markdown')
-                elif update.callback_query:
-                    await update.callback_query.answer(
-                        f"⚠️ لطفاً {remaining_time} ثانیه صبر کنید",
-                        show_alert=True
-                    )
+                try:
+                    if update.message:
+                        await update.message.reply_text(warning_msg, parse_mode='Markdown')
+                    elif update.callback_query:
+                        await update.callback_query.answer(
+                            f"⚠️ لطفاً {remaining_time} ثانیه صبر کنید",
+                            show_alert=True
+                        )
+                except Exception as e:
+                    logger.error(f"❌ Error sending rate limit message: {e}")
                 
                 return None
             
@@ -178,6 +203,9 @@ def action_limit(action: str, max_requests: int, window_seconds: int):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+            if not update.effective_user:
+                return await func(update, context, *args, **kwargs)
+            
             user_id = update.effective_user.id
             
             allowed, remaining_time = rate_limiter.check_action_limit(
@@ -202,24 +230,34 @@ def action_limit(action: str, max_requests: int, window_seconds: int):
                     'cart': 'افزودن به سبد'
                 }
                 
+                action_display = action_names.get(action, action)
+                
                 warning_msg = (
-                    f"⚠️ **محدودیت {action_names.get(action, action)}**\n\n"
+                    f"⚠️ **محدودیت {action_display}**\n\n"
                     f"شما به حداکثر تعداد مجاز رسیده‌اید.\n\n"
                     f"⏰ لطفاً {time_str} صبر کنید.\n\n"
                     f"📌 محدودیت: {max_requests} بار در هر "
-                    f"{window_seconds // 60} دقیقه" if window_seconds >= 60 
-                    else f"{window_seconds} ثانیه"
                 )
                 
-                if update.message:
-                    await update.message.reply_text(warning_msg, parse_mode='Markdown')
-                elif update.callback_query:
-                    await update.callback_query.answer(
-                        f"⚠️ لطفاً {time_str} صبر کنید",
-                        show_alert=True
-                    )
+                if window_seconds >= 3600:
+                    warning_msg += f"{window_seconds // 3600} ساعت"
+                elif window_seconds >= 60:
+                    warning_msg += f"{window_seconds // 60} دقیقه"
+                else:
+                    warning_msg += f"{window_seconds} ثانیه"
                 
-                logger.warning(f"User {user_id} hit action limit for '{action}'")
+                try:
+                    if update.message:
+                        await update.message.reply_text(warning_msg, parse_mode='Markdown')
+                    elif update.callback_query:
+                        await update.callback_query.answer(
+                            f"⚠️ لطفاً {time_str} صبر کنید",
+                            show_alert=True
+                        )
+                except Exception as e:
+                    logger.error(f"❌ Error sending action limit message: {e}")
+                
+                logger.warning(f"⚠️ User {user_id} hit action limit for '{action}'")
                 return None
             
             return await func(update, context, *args, **kwargs)
@@ -248,6 +286,9 @@ def bypass_rate_limit_for_admin(admin_id: int):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+            if not update.effective_user:
+                return await func(update, context, *args, **kwargs)
+            
             user_id = update.effective_user.id
             
             # اگر ادمین بود، بدون چک rate limit اجرا کن
@@ -259,32 +300,3 @@ def bypass_rate_limit_for_admin(admin_id: int):
         
         return wrapper
     return decorator
-
-
-# ==================== مثال استفاده ====================
-
-"""
-# در فایل user.py:
-
-from rate_limiter import rate_limit, action_limit
-
-@rate_limit(max_requests=10, window_seconds=10)
-async def handle_text_messages(update: Update, context):
-    # ...
-    pass
-
-@action_limit('order', max_requests=3, window_seconds=3600)
-async def finalize_order_start(update: Update, context):
-    # ...
-    pass
-
-@action_limit('discount', max_requests=5, window_seconds=60)
-async def apply_discount_start(update: Update, context):
-    # ...
-    pass
-
-@action_limit('cart', max_requests=20, window_seconds=60)
-async def handle_pack_selection(update: Update, context):
-    # ...
-    pass
-"""

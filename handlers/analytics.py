@@ -50,6 +50,92 @@ class Analytics:
             self.db.conn.commit()
         except Exception as e:
             print(f"⚠️ خطا در ایجاد جدول آمار: {e}")
+
+
+def cleanup_old_stats(self, days=90):
+    """
+    🔴 FIX باگ 2: پاکسازی آمار قدیمی
+    این تابع باید دوره‌ای (مثلاً هر شب) اجرا بشه
+    
+    Args:
+        days: نگهداری آمار چند روز اخیر (پیشفرض: 90 روز)
+    """
+    try:
+        # حذف آمار قدیمی‌تر از X روز
+        self.db.cursor.execute("""
+            DELETE FROM product_stats 
+            WHERE last_updated < DATE('now', '-{} days')
+        """.format(days))
+        
+        deleted = self.db.cursor.rowcount
+        self.db.conn.commit()
+        
+        if deleted > 0:
+            print(f"🧹 {deleted} آمار قدیمی پاک شد")
+        
+        return deleted
+        
+    except Exception as e:
+        print(f"❌ خطا در cleanup: {e}")
+        return 0
+
+
+def get_table_size(self):
+    """
+    🔴 FIX: چک کردن سایز جدول آمار
+    """
+    try:
+        self.db.cursor.execute("SELECT COUNT(*) FROM product_stats")
+        count = self.db.cursor.fetchone()[0]
+        
+        # تخمین سایز (هر رکورد ~1KB)
+        size_kb = count * 1
+        
+        return {
+            'count': count,
+            'size_kb': size_kb,
+            'size_mb': round(size_kb / 1024, 2)
+        }
+    except Exception as e:
+        print(f"❌ خطا در get_table_size: {e}")
+        return None
+
+
+# 🔴 تابع برای اجرای خودکار در main.py:
+
+async def scheduled_cleanup(context):
+    """
+    🔴 FIX: پاکسازی خودکار شبانه
+    این تابع رو در main.py به job_queue اضافه کن
+    """
+    try:
+        db = context.bot_data.get('db')
+        if db:
+            from handlers.analytics import Analytics
+            analytics = Analytics(db)
+            
+            # پاکسازی آمار قدیمی‌تر از 90 روز
+            deleted = analytics.cleanup_old_stats(days=90)
+            
+            # چک سایز جدول
+            size_info = analytics.get_table_size()
+            
+            print(f"✅ Cleanup done: {deleted} deleted, table size: {size_info['size_mb']} MB")
+            
+            # اگه جدول خیلی بزرگ شده بود، به ادمین اطلاع بده
+            if size_info['size_mb'] > 100:  # بیشتر از 100MB
+                from config import ADMIN_ID
+                await context.bot.send_message(
+                    ADMIN_ID,
+                    f"⚠️ **هشدار: سایز جدول آمار**\n\n"
+                    f"📊 تعداد: {size_info['count']:,}\n"
+                    f"💾 حجم: {size_info['size_mb']} MB\n\n"
+                    f"لطفاً بررسی کنید!",
+                    parse_mode='Markdown'
+                )
+    except Exception as e:
+        print(f"❌ خطا در scheduled_cleanup: {e}")
+
     
     def update_product_stats(self):
         """

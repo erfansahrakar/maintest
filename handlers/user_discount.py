@@ -1,5 +1,6 @@
 """
 🆕 هندلرهای مربوط به اعمال کد تخفیف توسط کاربر
+✅ FIXED: محاسبات unit_price درست شد
 """
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -45,8 +46,13 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ConversationHandler.END
     
-    # محاسبه مبلغ کل سبد
-    total_price = sum(item[4] * item[5] for item in cart)
+    # ✅ FIX: محاسبه صحیح مبلغ کل با unit_price
+    total_price = 0
+    for item in cart:
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
+        total_price += item_total
     
     # بررسی کد تخفیف
     discount = db.get_discount(discount_code)
@@ -128,16 +134,19 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['discount_amount'] = discount_amount
     context.user_data['discount_id'] = discount_id
     
-    # نمایش سبد با تخفیف
+    # ✅ FIX: نمایش سبد با unit_price صحیح
     text = "✅ **کد تخفیف اعمال شد!**\n\n"
     text += "🛒 **سبد خرید شما:**\n\n"
     
     for item in cart:
-        cart_id, product_name, pack_name, pack_qty, price, quantity = item
-        item_total = price * quantity
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        # محاسبه صحیح
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
         
         text += f"🏷 {product_name}\n"
-        text += f"📦 {pack_name} ({quantity} پک)\n"
+        text += f"📦 {pack_name} ({item_qty} عدد)\n"  # ✅ FIX: نمایش عدد نه پک
         text += f"💰 {item_total:,.0f} تومان\n\n"
     
     text += f"💵 جمع کل: {total_price:,.0f} تومان\n"

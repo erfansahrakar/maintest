@@ -1,6 +1,8 @@
 """
 مدیریت دیتابیس با SQLite
-
+✅ FIXED: Race Condition در add_to_cart
+✅ FIXED: حذف clean_invalid_cart_items از get_cart
+✅ FIXED: اضافه کردن UNIQUE constraint
 """
 import sqlite3
 import json
@@ -15,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_cart_lock = threading.Lock()
+# ❌ REMOVED: _cart_lock دیگه نیاز نیست چون از UNIQUE constraint استفاده میکنیم
 
 
 class DatabaseConnectionPool:
@@ -138,7 +140,11 @@ class Database:
             self.cache_manager.invalidate_pattern(pattern)
     
     def clean_invalid_cart_items(self, user_id: int):
-        """حذف آیتم‌های نامعتبر از سبد"""
+        """
+        حذف آیتم‌های نامعتبر از سبد
+        ✅ FIX: این تابع دیگه خودکار صدا زده نمیشه
+        فقط موقع نیاز (مثلاً وقتی پک حذف میشه) باید صدا بزنیش
+        """
         try:
             with self.transaction() as cursor:
                 cursor.execute("""
@@ -202,6 +208,7 @@ class Database:
             )
         """)
         
+        # ✅ FIX: اضافه کردن UNIQUE constraint برای جلوگیری از duplicate
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cart (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,11 +218,11 @@ class Database:
                 quantity INTEGER DEFAULT 1,
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-                FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE
+                FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE,
+                UNIQUE(user_id, pack_id)
             )
         """)
         
-        # 🆕 اضافه شده: فیلد expires_at
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,15 +272,14 @@ class Database:
         
         conn.commit()
         self._create_indexes()
-        self._migrate_existing_orders()  # 🆕 مهاجرت داده‌های قدیمی
+        self._migrate_existing_orders()
     
     def _migrate_existing_orders(self):
-        """🆕 اضافه کردن expires_at به سفارشات قدیمی"""
+        """اضافه کردن expires_at به سفارشات قدیمی"""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            # چک کردن وجود ستون
             cursor.execute("PRAGMA table_info(orders)")
             columns = [col[1] for col in cursor.fetchall()]
             
@@ -282,7 +288,6 @@ class Database:
                 cursor.execute("ALTER TABLE orders ADD COLUMN expires_at TIMESTAMP")
                 conn.commit()
             
-            # بروزرسانی سفارشات قدیمی که expires_at ندارن
             cursor.execute("""
                 UPDATE orders 
                 SET expires_at = datetime(created_at, '+1 day')
@@ -304,8 +309,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_orders_expires_at ON orders(expires_at)",  # 🆕
+            "CREATE INDEX IF NOT EXISTS idx_orders_expires_at ON orders(expires_at)",
             "CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart(user_id)",
+            # ✅ FIX: اضافه کردن UNIQUE index برای cart
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_user_pack ON cart(user_id, pack_id)",
             "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
         ]
@@ -389,6 +396,9 @@ class Database:
         with self.transaction() as cursor:
             cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
             cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
+            
+            # ✅ FIX: پاکسازی cart items مرتبط با این محصول
+            cursor.execute("DELETE FROM cart WHERE product_id = ?", (product_id,))
         
         self._invalidate_cache(f"product:{product_id}")
         self._invalidate_cache(f"packs:{product_id}")
@@ -432,6 +442,9 @@ class Database:
             product_id = pack[1]
             with self.transaction() as cursor:
                 cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
+                # ✅ FIX: پاکسازی cart items مرتبط با این پک
+                cursor.execute("DELETE FROM cart WHERE pack_id = ?", (pack_id,))
+            
             self._invalidate_cache(f"packs:{product_id}")
     
     # ==================== کاربران ====================
@@ -474,54 +487,40 @@ class Database:
     # ==================== سبد خرید ====================
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        """افزودن به سبد با Lock برای جلوگیری از duplicate"""
-        with _cart_lock:
-            conn = self._get_conn()
-            cursor = conn.cursor()
+        """
+        ✅ FIXED: استفاده از INSERT ... ON CONFLICT برای حل Race Condition
+        دیگه نیازی به Lock نیست!
+        """
+        try:
+            pack = self.get_pack(pack_id)
+            if not pack:
+                logger.warning(f"⚠️ Pack {pack_id} not found")
+                return
             
-            cursor.execute("BEGIN IMMEDIATE")
+            pack_quantity = pack[3]
+            actual_quantity = quantity * pack_quantity
             
-            try:
+            with self.transaction() as cursor:
+                # ✅ FIX: استفاده از UPSERT
                 cursor.execute("""
-                    SELECT id, quantity FROM cart 
-                    WHERE user_id = ? AND product_id = ? AND pack_id = ?
-                """, (user_id, product_id, pack_id))
-                
-                existing = cursor.fetchone()
-                
-                pack = self.get_pack(pack_id)
-                if not pack:
-                    cursor.execute("ROLLBACK")
-                    return
-                
-                pack_quantity = pack[3]
-                actual_quantity = quantity * pack_quantity
-                
-                if existing:
-                    new_quantity = existing[1] + actual_quantity
-                    cursor.execute(
-                        "UPDATE cart SET quantity = ? WHERE id = ?", 
-                        (new_quantity, existing[0])
-                    )
-                else:
-                    cursor.execute("""
-                        INSERT INTO cart (user_id, product_id, pack_id, quantity) 
-                        VALUES (?, ?, ?, ?)
-                    """, (user_id, product_id, pack_id, actual_quantity))
-                
-                cursor.execute("COMMIT")
-                self._invalidate_cache(f"cart:{user_id}")
-                
-                logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
-                
-            except Exception as e:
-                cursor.execute("ROLLBACK")
-                logger.error(f"❌ Cart error: {e}")
-                raise
+                    INSERT INTO cart (user_id, product_id, pack_id, quantity) 
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(user_id, pack_id) DO UPDATE 
+                    SET quantity = quantity + excluded.quantity
+                """, (user_id, product_id, pack_id, actual_quantity))
+            
+            self._invalidate_cache(f"cart:{user_id}")
+            logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
+            
+        except Exception as e:
+            logger.error(f"❌ Cart error: {e}")
+            raise
     
     def get_cart(self, user_id: int):
-        self.clean_invalid_cart_items(user_id)
-        
+        """
+        ✅ FIXED: حذف clean_invalid_cart_items
+        پاکسازی فقط موقع نیاز انجام میشه (مثلاً وقتی پک حذف میشه)
+        """
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("""
@@ -551,17 +550,16 @@ class Database:
         if result:
             self._invalidate_cache(f"cart:{result[0]}")
     
-    # ==================== سفارشات (بروزرسانی شده) ====================
+    # ==================== سفارشات ====================
     
     def create_order(self, user_id: int, items: List[dict], total_price: float, 
                     discount_amount: float = 0, final_price: Optional[float] = None, 
                     discount_code: Optional[str] = None):
-        """🆕 ایجاد سفارش با تاریخ انقضا ۱ روزه"""
+        """ایجاد سفارش با تاریخ انقضا ۱ روزه"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
-        # 🆕 محاسبه تاریخ انقضا (۱ روز بعد)
         expires_at = datetime.now() + timedelta(days=1)
         
         with self.transaction() as cursor:
@@ -608,16 +606,10 @@ class Database:
         return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
-        """
-        🆕 دریافت سفارشات کاربر - بدون rejected و expired
-        ✅ FIX: فیلتر خودکار سفارشات منقضی شده و رد شده
-        """
+        """دریافت سفارشات کاربر - بدون rejected و expired"""
         conn = self._get_conn()
         cursor = conn.cursor()
     
-        # 🔥 فیلتر کردن سفارشات:
-        # 1. حذف سفارشات با status = 'rejected'
-        # 2. حذف سفارشات منقضی شده (expired)
         cursor.execute("""
             SELECT * FROM orders 
             WHERE user_id = ? 
@@ -632,7 +624,7 @@ class Database:
         return cursor.fetchall()
     
     def delete_order(self, order_id: int):
-        """🆕 حذف سفارش توسط کاربر"""
+        """حذف سفارش توسط کاربر"""
         try:
             with self.transaction() as cursor:
                 cursor.execute("DELETE FROM orders WHERE id = ?", (order_id,))
@@ -644,39 +636,28 @@ class Database:
             return False
     
     def is_order_expired(self, order_id: int) -> bool:
-        """🆕 بررسی منقضی بودن سفارش"""
+        """بررسی منقضی بودن سفارش"""
         order = self.get_order(order_id)
         if not order:
             return True
         
-        expires_at = order[11]  # فیلد expires_at
+        expires_at = order[11]
         if not expires_at:
             return False
         
-        # تبدیل string به datetime
         if isinstance(expires_at, str):
             expires_at = datetime.fromisoformat(expires_at)
         
         return datetime.now() > expires_at
     
     def cleanup_old_orders(self, days_old: int = 7) -> dict:
-        """
-        🆕 پاکسازی سفارشات قدیمی
-        
-        حذف سفارشات:
-        - رد شده (rejected) که بیشتر از days_old روز قدیمی هستند
-        - منقضی شده که بیشتر از days_old روز قدیمی هستند
-        
-        سفارشات تکمیل شده (payment_confirmed, confirmed) حذف نمیشن
-        """
+        """پاکسازی سفارشات قدیمی"""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            # محاسبه تاریخ مرجع
             cutoff_date = datetime.now() - timedelta(days=days_old)
             
-            # شمارش سفارشات قابل حذف
             cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE (
@@ -688,7 +669,6 @@ class Database:
             
             count_before = cursor.fetchone()[0]
             
-            # حذف سفارشات قدیمی
             cursor.execute("""
                 DELETE FROM orders 
                 WHERE (
@@ -703,7 +683,6 @@ class Database:
             
             logger.info(f"🧹 پاکسازی: {deleted_count} سفارش قدیمی حذف شد")
             
-            # گزارش
             report = {
                 'deleted_count': deleted_count,
                 'days_old': days_old,
@@ -817,12 +796,12 @@ class Database:
     
     @property
     def cursor(self):
-        """✅ FIX: برای backward compatibility"""
+        """برای backward compatibility"""
         return self._get_conn().cursor()
     
     @property  
     def conn(self):
-        """✅ FIX: برای backward compatibility"""
+        """برای backward compatibility"""
         return self._get_conn()
     
     def close(self):

@@ -47,18 +47,39 @@ def product_inline_keyboard(product_id, packs):
 
 
 def cart_keyboard(cart_items):
-    """دکمه‌های سبد خرید"""
+    """🆕 دکمه‌های سبد خرید با + و - مثل ادمین"""
     keyboard = []
+    
     for item in cart_items:
         cart_id, product_name, pack_name, pack_qty, price, quantity = item
+        
+        # 📦 نام محصول (خط اول)
         keyboard.append([InlineKeyboardButton(
-            f"🗑 حذف {product_name} ({pack_name}) - {quantity} عدد",
-            callback_data=f"remove_cart:{cart_id}"
+            f"📦 {product_name} - {pack_name} (×{quantity} عدد)",
+            callback_data=f"cart_item_info:{cart_id}"
         )])
+        
+        # دکمه‌های عملیات (خط دوم)
+        row = []
+        row.append(InlineKeyboardButton(
+            f"➖ ({pack_qty})", 
+            callback_data=f"cart_decrease:{cart_id}"
+        ))
+        row.append(InlineKeyboardButton(
+            "❌ حذف", 
+            callback_data=f"remove_cart:{cart_id}"
+        ))
+        row.append(InlineKeyboardButton(
+            f"➕ ({pack_qty})", 
+            callback_data=f"cart_increase:{cart_id}"
+        ))
+        keyboard.append(row)
     
+    # دکمه‌های پایینی
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 

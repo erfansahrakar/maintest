@@ -1,7 +1,6 @@
 """
 مدیریت دیتابیس با SQLite
-✅ اضافه شده: تاریخ انقضا برای سفارشات (1 روز)
-✅ اضافه شده: حذف سفارش توسط کاربر
+
 """
 import sqlite3
 import json
@@ -659,6 +658,70 @@ class Database:
             expires_at = datetime.fromisoformat(expires_at)
         
         return datetime.now() > expires_at
+    
+    def cleanup_old_orders(self, days_old: int = 7) -> dict:
+        """
+        🆕 پاکسازی سفارشات قدیمی
+        
+        حذف سفارشات:
+        - رد شده (rejected) که بیشتر از days_old روز قدیمی هستند
+        - منقضی شده که بیشتر از days_old روز قدیمی هستند
+        
+        سفارشات تکمیل شده (payment_confirmed, confirmed) حذف نمیشن
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            # محاسبه تاریخ مرجع
+            cutoff_date = datetime.now() - timedelta(days=days_old)
+            
+            # شمارش سفارشات قابل حذف
+            cursor.execute("""
+                SELECT COUNT(*) FROM orders 
+                WHERE (
+                    status = 'rejected' 
+                    OR (datetime(expires_at) < datetime('now') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                )
+                AND datetime(created_at) < datetime(?)
+            """, (cutoff_date,))
+            
+            count_before = cursor.fetchone()[0]
+            
+            # حذف سفارشات قدیمی
+            cursor.execute("""
+                DELETE FROM orders 
+                WHERE (
+                    status = 'rejected' 
+                    OR (datetime(expires_at) < datetime('now') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                )
+                AND datetime(created_at) < datetime(?)
+            """, (cutoff_date,))
+            
+            conn.commit()
+            deleted_count = cursor.rowcount
+            
+            logger.info(f"🧹 پاکسازی: {deleted_count} سفارش قدیمی حذف شد")
+            
+            # گزارش
+            report = {
+                'deleted_count': deleted_count,
+                'days_old': days_old,
+                'cutoff_date': cutoff_date.isoformat(),
+                'success': True
+            }
+            
+            self._invalidate_cache("stats:")
+            
+            return report
+            
+        except Exception as e:
+            logger.error(f"❌ خطا در پاکسازی سفارشات: {e}")
+            return {
+                'deleted_count': 0,
+                'success': False,
+                'error': str(e)
+            }
     
     # ==================== تخفیف ====================
     

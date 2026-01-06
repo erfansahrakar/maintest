@@ -1,6 +1,6 @@
 """
 مدیریت سفارشات و پرداخت‌ها
-
+✅ FIX: رفع مشکل دکمه "سفارشات جدید"
 """
 import json
 import jdatetime
@@ -18,8 +18,11 @@ from keyboards import (
 
 
 def format_jalali_datetime(dt_str):
-    """تبدیل تاریخ میلادی به شمسی"""
+    """✅ تبدیل تاریخ میلادی به شمسی - با Try-Except"""
     try:
+        if not dt_str:
+            return "نامشخص"
+        
         if isinstance(dt_str, str):
             dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
         else:
@@ -27,8 +30,9 @@ def format_jalali_datetime(dt_str):
         
         jalali = jdatetime.datetime.fromgregorian(datetime=dt)
         return jalali.strftime('%Y-%m-%d %H:%M:%S')
-    except:
-        return dt_str
+    except Exception as e:
+        print(f"❌ Error in format_jalali_datetime: {e}")
+        return str(dt_str) if dt_str else "نامشخص"
 
 
 def get_order_status_emoji(status):
@@ -60,15 +64,20 @@ def get_order_status_text(status):
 
 
 def is_order_expired(order):
-    """بررسی منقضی بودن سفارش"""
-    expires_at = order[11]  # فیلد expires_at
-    if not expires_at:
+    """✅ بررسی منقضی بودن سفارش - با Try-Except"""
+    try:
+        expires_at = order[11]  # فیلد expires_at
+        
+        if not expires_at:
+            return False
+        
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+        
+        return datetime.now() > expires_at
+    except Exception as e:
+        print(f"❌ Error in is_order_expired: {e}")
         return False
-    
-    if isinstance(expires_at, str):
-        expires_at = datetime.fromisoformat(expires_at)
-    
-    return datetime.now() > expires_at
 
 
 def create_order_action_keyboard(order_id, status, is_expired):
@@ -178,6 +187,118 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = create_order_action_keyboard(order_id, actual_status, expired)
         
         await update.message.reply_text(text, reply_markup=keyboard)
+
+
+async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ✅ FIX: نمایش سفارشات در انتظار
+    🔥 رفع مشکل دکمه "سفارشات جدید"
+    """
+    try:
+        db = context.bot_data['db']
+        orders = db.get_pending_orders()
+        
+        if not orders:
+            await update.message.reply_text(
+                "✅ هیچ سفارش جدیدی وجود ندارد!\n\n"
+                "تمام سفارشات بررسی شده‌اند.",
+                parse_mode='Markdown'
+            )
+            return
+        
+        await update.message.reply_text(
+            f"📋 **{len(orders)} سفارش جدید**\n\n"
+            f"در حال ارسال...",
+            parse_mode='Markdown'
+        )
+        
+        for order in orders:
+            try:
+                # ✅ با Try-Except برای هر سفارش
+                order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+                
+                items = json.loads(items_json)
+                user = db.get_user(user_id)
+                
+                # ✅ دریافت اطلاعات کاربر با چک None
+                first_name = user[2] if len(user) > 2 and user[2] else "کاربر"
+                username = user[1] if len(user) > 1 and user[1] else "ندارد"
+                phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+                full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+                address = user[6] if len(user) > 6 and user[6] else "ندارد"
+                
+                # بررسی منقضی بودن
+                expired = is_order_expired(order)
+                
+                text = f"📋 **سفارش #{order_id}**\n\n"
+                text += f"👤 {first_name}"
+                
+                if username != "ندارد":
+                    text += f" (@{username})"
+                
+                text += f"\n📝 نام: {full_name}\n"
+                text += f"📞 {phone}\n"
+                text += f"📍 {address}\n\n"
+                
+                if expired:
+                    text += "⚠️ **این سفارش منقضی شده است!**\n\n"
+                
+                text += "🛍 **محصولات:**\n"
+                
+                for item in items:
+                    text += f"▫️ {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+                    
+                    if item.get('admin_notes'):
+                        text += f"\n   📝 {item['admin_notes']}"
+                    
+                    text += "\n"
+                
+                text += f"\n💰 جمع: {total_price:,.0f} تومان"
+                
+                if discount_amount > 0:
+                    text += f"\n🎁 تخفیف: {discount_amount:,.0f} تومان"
+                    if discount_code:
+                        text += f" (کد: {discount_code})"
+                    text += f"\n💳 نهایی: {final_price:,.0f} تومان"
+                
+                # ✅ نمایش تاریخ با Try-Except
+                try:
+                    text += f"\n\n📅 تاریخ: {format_jalali_datetime(created_at)}"
+                    
+                    if expires_at:
+                        text += f"\n⏰ انقضا: {format_jalali_datetime(expires_at)}"
+                except:
+                    pass
+                
+                await update.message.reply_text(
+                    text,
+                    reply_markup=order_confirmation_keyboard(order_id),
+                    parse_mode='Markdown'
+                )
+            
+            except Exception as order_error:
+                # ✅ اگر یک سفارش خطا داد، به بقیه ادامه بده
+                print(f"❌ Error processing order {order_id if 'order_id' in locals() else 'unknown'}: {order_error}")
+                
+                await update.message.reply_text(
+                    f"⚠️ خطا در نمایش سفارش #{order_id if 'order_id' in locals() else 'unknown'}\n\n"
+                    f"لطفاً دستی از دیتابیس بررسی کنید."
+                )
+                continue
+    
+    except Exception as e:
+        # ✅ خطای کلی
+        print(f"❌ Critical error in view_pending_orders: {e}")
+        
+        await update.message.reply_text(
+            "❌ **خطا در دریافت سفارشات!**\n\n"
+            f"متن خطا:\n`{str(e)}`\n\n"
+            "💡 احتمال دارد:\n"
+            "1. دیتابیس آسیب دیده باشد\n"
+            "2. فیلدهای expires_at مشکل داشته باشند\n"
+            "3. JSON items خراب باشد",
+            parse_mode='Markdown'
+        )
 
 
 async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -301,62 +422,6 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
         text,
         reply_markup=order_confirmation_keyboard(order_id_val)
     )
-
-
-async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سفارشات در انتظار"""
-    db = context.bot_data['db']
-    orders = db.get_pending_orders()
-    
-    if not orders:
-        await update.message.reply_text("هیچ سفارش جدیدی وجود ندارد.")
-        return
-    
-    for order in orders:
-        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
-        items = json.loads(items_json)
-        user = db.get_user(user_id)
-        
-        first_name = user[2] if len(user) > 2 else "کاربر"
-        username = user[1] if len(user) > 1 and user[1] else "ندارد"
-        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
-        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
-        address = user[6] if len(user) > 6 and user[6] else "ندارد"
-        
-        # بررسی منقضی بودن
-        expired = is_order_expired(order)
-        
-        text = f"📋 سفارش #{order_id}\n\n"
-        text += f"👤 {first_name} (@{username})\n"
-        text += f"📝 نام: {full_name}\n"
-        text += f"📞 {phone}\n"
-        text += f"📍 {address}\n\n"
-        
-        if expired:
-            text += "⚠️ **این سفارش منقضی شده است!**\n\n"
-        
-        for item in items:
-            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
-            
-            if item.get('admin_notes'):
-                text += f"\n  📝 {item['admin_notes']}"
-            
-            text += "\n"
-        
-        text += f"\n💰 جمع: {total_price:,.0f} تومان"
-        
-        if discount_amount > 0:
-            text += f"\n🎁 تخفیف: {discount_amount:,.0f} تومان"
-            text += f"\n💳 نهایی: {final_price:,.0f} تومان"
-        
-        text += f"\n\n📅 تاریخ: {format_jalali_datetime(created_at)}"
-        text += f"\n⏰ انقضا: {format_jalali_datetime(expires_at)}"
-        
-        await update.message.reply_text(
-            text,
-            reply_markup=order_confirmation_keyboard(order_id),
-            parse_mode='Markdown'
-        )
 
 
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -540,7 +605,7 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id,
         "❌ متأسفانه سفارش شما رد شد.\n\n"
         "💡 محصولات همچنان در سبد شما باقی هستند.\n"
-        "می‌توانید تغییرات لازم را اعمال کرده و دوباره سفارش دهید.\n\n"
+        "می‌توانید تغییرات لازم را اعمال کرده و دوبارهسفارش دهید.\n\n"
         "📞 برای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
         reply_markup=user_main_keyboard()
     )
@@ -788,4 +853,4 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
-    )
+        )

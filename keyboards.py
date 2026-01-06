@@ -1,18 +1,18 @@
 """
 کیبوردها و دکمه‌های ربات
-
+✅ VERIFIED: همه توابع استفاده میشن
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 def admin_main_keyboard():
-    """منوی اصلی ادمین - با دکمه داشبورد و پاکسازی"""
+    """منوی اصلی ادمین"""
     keyboard = [
         ["🎛 داشبورد", "📊 آمار"],
         ["➕ افزودن محصول", "📦 لیست محصولات"],
         ["📋 سفارشات جدید", "💳 تایید پرداخت‌ها"],
         ["🎁 مدیریت تخفیف‌ها", "📢 پیام همگانی"],
         ["📈 گزارش‌های تحلیلی", "💾 بکاپ دستی"],
-        ["🧹 پاکسازی دیتابیس"]  # 🆕 دکمه جدید
+        ["🧹 پاکسازی دیتابیس"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -34,7 +34,7 @@ def cancel_keyboard():
 
 
 def product_inline_keyboard(product_id, packs):
-    """دکمه‌های انتخاب پک برای محصول - برای کانال"""
+    """دکمه‌های انتخاب پک برای محصول"""
     keyboard = []
     for pack in packs:
         pack_id, prod_id, name, quantity, price, *_ = pack
@@ -47,19 +47,17 @@ def product_inline_keyboard(product_id, packs):
 
 
 def cart_keyboard(cart_items):
-    """🆕 دکمه‌های سبد خرید با + و - مثل ادمین"""
+    """دکمه‌های سبد خرید"""
     keyboard = []
     
     for item in cart_items:
         cart_id, product_name, pack_name, pack_qty, price, quantity = item
         
-        # 📦 نام محصول (خط اول)
         keyboard.append([InlineKeyboardButton(
             f"📦 {product_name} - {pack_name} (×{quantity} عدد)",
             callback_data=f"cart_item_info:{cart_id}"
         )])
         
-        # دکمه‌های عملیات (خط دوم)
         row = []
         row.append(InlineKeyboardButton(
             f"➖ ({pack_qty})", 
@@ -75,7 +73,6 @@ def cart_keyboard(cart_items):
         ))
         keyboard.append(row)
     
-    # دکمه‌های پایینی
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
@@ -120,7 +117,7 @@ def product_management_keyboard(product_id):
 
 
 def edit_product_keyboard(product_id):
-    """دکمه‌های انتخاب نوع ویرایش محصول"""
+    """دکمه‌های ویرایش محصول"""
     keyboard = [
         [InlineKeyboardButton("📝 ویرایش نام", callback_data=f"edit_prod_name:{product_id}")],
         [InlineKeyboardButton("📄 ویرایش توضیحات", callback_data=f"edit_prod_desc:{product_id}")],
@@ -281,7 +278,7 @@ def analytics_menu_keyboard():
 
 
 def quantity_keyboard(product_id, pack_id):
-    """دکمه‌های انتخاب تعداد"""
+    """دکمه‌های انتخاب تعداد - ✅ استفاده میشه"""
     keyboard = []
     row = []
     

@@ -1,6 +1,30 @@
 """
 تعریف State های مکالمه برای ConversationHandler ها
+✅ ADDED: OrderStatus Enum برای جلوگیری از typo
 """
+from enum import Enum
+
+# ==================== Order Status Enum ====================
+
+class OrderStatus(str, Enum):
+    """
+    ✅ FIX باگ Medium 4: استفاده از Enum بجای string
+    این از typo جلوگیری میکنه و کد رو type-safe میکنه
+    """
+    PENDING = 'pending'
+    WAITING_PAYMENT = 'waiting_payment'
+    RECEIPT_SENT = 'receipt_sent'
+    PAYMENT_CONFIRMED = 'payment_confirmed'
+    CONFIRMED = 'confirmed'
+    REJECTED = 'rejected'
+    EXPIRED = 'expired'
+    
+    def __str__(self):
+        """برای استفاده راحت در queries"""
+        return self.value
+
+
+# ==================== Conversation States ====================
 
 # State های محصول و پک (ادمین)
 PRODUCT_NAME, PRODUCT_DESC, PRODUCT_PHOTO = range(3)

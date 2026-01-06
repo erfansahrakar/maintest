@@ -1,8 +1,6 @@
 """
 هندلرهای مربوط به کاربران
-✅ FIX: ترتیب صحیح log_order و log_discount_usage
-✅ حذف view_my_orders (جابجا شده به order.py)
-✅ 🆕 اضافه شده: دکمه‌های + و - برای سبد خرید
+
 """
 import json
 from telegram import Update
@@ -253,9 +251,31 @@ async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # نمایش پیام
     await query.answer(f"✅ {pack_qty} عدد اضافه شد!\n🔢 تعداد جدید: {new_qty} عدد", show_alert=True)
     
-    # به‌روزرسانی نمایش سبد
-    await view_cart(update, context)
-    await query.message.delete()
+    # به‌روزرسانی نمایش سبد (ادیت پیام به جای حذف)
+    cart = db.get_cart(user_id)
+    
+    if not cart:
+        await query.edit_message_text("🛒 سبد خرید شما خالی است!")
+        return
+    
+    text = "🛒 سبد خرید شما:\n\n"
+    total_price = 0
+    
+    for item in cart:
+        cart_id_item, product_name_item, pack_name_item, pack_qty_item, pack_price, item_qty = item
+        
+        unit_price = pack_price / pack_qty_item
+        item_total = unit_price * item_qty
+        total_price += item_total
+        
+        text += f"🏷 {product_name_item}\n"
+        text += f"📦 {pack_name_item} ({item_qty} عدد)\n"
+        text += f"💰 {item_total:,.0f} تومان\n\n"
+    
+    text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    
+    from keyboards import cart_keyboard
+    await query.edit_message_text(text, reply_markup=cart_keyboard(cart))
 
 
 async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -288,8 +308,8 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # کاهش تعداد به اندازه pack_qty
     new_qty = current_qty - pack_qty
     
-    # اگر تعداد از pack_qty کمتر بشه، حذف کن
-    if new_qty < pack_qty:
+    # اگر تعداد صفر یا منفی بشه، حذف کن
+    if new_qty <= 0:
         cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
         conn.commit()
         
@@ -304,9 +324,31 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.answer(f"➖ {pack_qty} عدد کم شد!\n🔢 تعداد جدید: {new_qty} عدد", show_alert=True)
     
-    # به‌روزرسانی نمایش سبد
-    await view_cart(update, context)
-    await query.message.delete()
+    # به‌روزرسانی نمایش سبد (ادیت پیام به جای حذف)
+    cart = db.get_cart(user_id)
+    
+    if not cart:
+        await query.edit_message_text("✅ سبد خرید شما خالی شد.")
+        return
+    
+    text = "🛒 سبد خرید شما:\n\n"
+    total_price = 0
+    
+    for item in cart:
+        cart_id_item, product_name_item, pack_name_item, pack_qty_item, pack_price, item_qty = item
+        
+        unit_price = pack_price / pack_qty_item
+        item_total = unit_price * item_qty
+        total_price += item_total
+        
+        text += f"🏷 {product_name_item}\n"
+        text += f"📦 {pack_name_item} ({item_qty} عدد)\n"
+        text += f"💰 {item_total:,.0f} تومان\n\n"
+    
+    text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    
+    from keyboards import cart_keyboard
+    await query.edit_message_text(text, reply_markup=cart_keyboard(cart))
 
 
 async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -315,11 +357,35 @@ async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("🗑 حذف شد!")
     
     cart_id = int(query.data.split(":")[1])
+    user_id = update.effective_user.id
     db = context.bot_data['db']
     db.remove_from_cart(cart_id)
     
-    await view_cart(update, context)
-    await query.message.delete()
+    # به‌روزرسانی نمایش سبد (ادیت به جای حذف)
+    cart = db.get_cart(user_id)
+    
+    if not cart:
+        await query.edit_message_text("✅ سبد خرید شما خالی شد.")
+        return
+    
+    text = "🛒 سبد خرید شما:\n\n"
+    total_price = 0
+    
+    for item in cart:
+        cart_id_item, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
+        total_price += item_total
+        
+        text += f"🏷 {product_name}\n"
+        text += f"📦 {pack_name} ({item_qty} عدد)\n"
+        text += f"💰 {item_total:,.0f} تومان\n\n"
+    
+    text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    
+    from keyboards import cart_keyboard
+    await query.edit_message_text(text, reply_markup=cart_keyboard(cart))
 
 
 async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):

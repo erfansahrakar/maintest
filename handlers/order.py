@@ -1,7 +1,6 @@
 """
 مدیریت سفارشات و پرداخت‌ها
-✅ FIXED: اضافه شدن expire check به همه handler ها
-✅ FIXED: استفاده از OrderStatus Enum
+
 """
 import json
 import jdatetime
@@ -40,9 +39,6 @@ def format_jalali_datetime(dt_str):
 
 def get_order_status_emoji(status):
     """ایموجی وضعیت سفارش"""
-    # ✅ حالا میتونیم هم string و هم Enum قبول کنیم
-    status_str = str(status) if isinstance(status, OrderStatus) else status
-    
     status_map = {
         OrderStatus.PENDING: '⏳',
         OrderStatus.WAITING_PAYMENT: '💳',
@@ -53,9 +49,9 @@ def get_order_status_emoji(status):
         OrderStatus.EXPIRED: '⏰'
     }
     
-    # جستجو با string
+    # ✅ مقایسه با Enum
     for key, emoji in status_map.items():
-        if str(key) == status_str:
+        if status == key:
             return emoji
     
     return '❓'
@@ -63,8 +59,6 @@ def get_order_status_emoji(status):
 
 def get_order_status_text(status):
     """متن وضعیت سفارش"""
-    status_str = str(status) if isinstance(status, OrderStatus) else status
-    
     status_map = {
         OrderStatus.PENDING: 'در انتظار تایید',
         OrderStatus.WAITING_PAYMENT: 'در انتظار پرداخت',
@@ -75,8 +69,9 @@ def get_order_status_text(status):
         OrderStatus.EXPIRED: 'منقضی شده'
     }
     
+    # ✅ مقایسه با Enum
     for key, text in status_map.items():
-        if str(key) == status_str:
+        if status == key:
             return text
     
     return 'نامشخص'
@@ -108,10 +103,9 @@ def create_order_action_keyboard(order_id, status, is_expired):
     ساخت دکمه‌های دینامیک بر اساس وضعیت سفارش
     """
     keyboard = []
-    status_str = str(status)
     
     # سفارشات تکمیل شده → بدون دکمه
-    if status_str in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED]:
+    if status == OrderStatus.PAYMENT_CONFIRMED or status == OrderStatus.CONFIRMED:
         return None
     
     # سفارشات منقضی شده → فقط دکمه حذف
@@ -121,7 +115,7 @@ def create_order_action_keyboard(order_id, status, is_expired):
         ])
     
     # سفارش در مرحله پرداخت
-    elif status_str == OrderStatus.WAITING_PAYMENT:
+    elif status == OrderStatus.WAITING_PAYMENT:
         keyboard.append([
             InlineKeyboardButton("💳 ادامه پرداخت", callback_data=f"continue_payment:{order_id}")
         ])
@@ -130,19 +124,19 @@ def create_order_action_keyboard(order_id, status, is_expired):
         ])
     
     # رسید ارسال شده
-    elif status_str == OrderStatus.RECEIPT_SENT:
+    elif status == OrderStatus.RECEIPT_SENT:
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر تایید ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
     # در انتظار تایید اولیه
-    elif status_str == OrderStatus.PENDING:
+    elif status == OrderStatus.PENDING:
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر بررسی ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
     # رد شده
-    elif status_str == OrderStatus.REJECTED:
+    elif status == OrderStatus.REJECTED:
         keyboard.append([
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
@@ -267,7 +261,7 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # بررسی وضعیت
     status = order[7]
-    if status in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED]:
+    if status == OrderStatus.PAYMENT_CONFIRMED or status == OrderStatus.CONFIRMED:
         await query.answer(
             "⚠️ سفارشات تکمیل شده قابل حذف نیستند!\n\n"
             "💡 این سفارش در سوابق شما باقی می‌ماند.",

@@ -4,9 +4,11 @@
 ✅ FIXED: Code Duplication در cart_increase/decrease
 ✅ FIXED: Transaction در create_order
 ✅ FIXED: Better Error Handling
+✅ FIXED: Race Condition با استفاده از asyncio.Lock
 """
 import json
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from config import MESSAGES
@@ -25,6 +27,9 @@ from keyboards import (
 
 logger = logging.getLogger(__name__)
 
+# ✅ Lock برای جلوگیری از Race Condition در cart operations
+cart_locks = {}  # به ازای هر کاربر یک Lock
+
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -33,6 +38,7 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
     """
     ✅ FIX باگ 1: Helper function برای تغییر تعداد
     این تابع Memory Leak نداره چون از transaction() استفاده میکنه
+    ✅ FIX باگ 5: استفاده از Lock برای Race Condition
     
     Args:
         update: Update object
@@ -47,54 +53,60 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    try:
-        # دریافت اطلاعات cart item
-        conn = db._get_conn()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT c.id, c.product_id, c.pack_id, c.quantity, 
-                   pk.quantity as pack_qty, pk.name, p.name
-            FROM cart c
-            JOIN packs pk ON c.pack_id = pk.id
-            JOIN products p ON c.product_id = p.id
-            WHERE c.id = ? AND c.user_id = ?
-        """, (cart_id, user_id))
-        
-        result = cursor.fetchone()
-        
-        if not result:
-            return False, 0, "❌ آیتم یافت نشد!"
-        
-        cart_id_val, product_id, pack_id, current_qty, pack_qty, pack_name, product_name = result
-        
-        # محاسبه تعداد جدید
-        new_qty = current_qty + (delta * pack_qty)
-        
-        # ✅ FIX: استفاده از Transaction برای جلوگیری از Memory Leak
-        with db.transaction() as cursor:
-            if new_qty <= 0:
-                # حذف آیتم
-                cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
-                action = "حذف از سبد"
-                message = f"🗑 آیتم حذف شد!"
-            else:
-                # بروزرسانی تعداد
-                cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_qty, cart_id))
-                action = "افزایش در سبد" if delta > 0 else "کاهش در سبد"
-                change_text = "➕" if delta > 0 else "➖"
-                message = f"{change_text} {abs(delta * pack_qty)} عدد {'اضافه' if delta > 0 else 'کم'} شد!\n🔢 تعداد جدید: {new_qty} عدد"
-        
-        # Invalidate cache
-        db._invalidate_cache(f"cart:{user_id}")
-        
-        # ثبت لاگ
-        log_user_action(user_id, action, f"{product_name} - {pack_name}")
-        
-        return True, new_qty, message
-        
-    except Exception as e:
-        logger.error(f"❌ خطا در _update_cart_item_quantity: {e}")
-        return False, 0, "❌ خطا در بروزرسانی سبد!"
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
+    
+    # ✅ قفل کن تا کار قبلی تموم شه
+    async with cart_locks[user_id]:
+        try:
+            # دریافت اطلاعات cart item
+            conn = db._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT c.id, c.product_id, c.pack_id, c.quantity, 
+                       pk.quantity as pack_qty, pk.name, p.name
+                FROM cart c
+                JOIN packs pk ON c.pack_id = pk.id
+                JOIN products p ON c.product_id = p.id
+                WHERE c.id = ? AND c.user_id = ?
+            """, (cart_id, user_id))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                return False, 0, "❌ آیتم یافت نشد!"
+            
+            cart_id_val, product_id, pack_id, current_qty, pack_qty, pack_name, product_name = result
+            
+            # محاسبه تعداد جدید
+            new_qty = current_qty + (delta * pack_qty)
+            
+            # ✅ FIX: استفاده از Transaction برای جلوگیری از Memory Leak
+            with db.transaction() as cursor:
+                if new_qty <= 0:
+                    # حذف آیتم
+                    cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
+                    action = "حذف از سبد"
+                    message = f"🗑 آیتم حذف شد!"
+                else:
+                    # بروزرسانی تعداد
+                    cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_qty, cart_id))
+                    action = "افزایش در سبد" if delta > 0 else "کاهش در سبد"
+                    change_text = "➕" if delta > 0 else "➖"
+                    message = f"{change_text} {abs(delta * pack_qty)} عدد {'اضافه' if delta > 0 else 'کم'} شد!\n🔢 تعداد جدید: {new_qty} عدد"
+            
+            # Invalidate cache
+            db._invalidate_cache(f"cart:{user_id}")
+            
+            # ثبت لاگ
+            log_user_action(user_id, action, f"{product_name} - {pack_name}")
+            
+            return True, new_qty, message
+            
+        except Exception as e:
+            logger.error(f"❌ خطا در _update_cart_item_quantity: {e}")
+            return False, 0, "❌ خطا در بروزرسانی سبد!"
 
 
 async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -278,7 +290,10 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, produ
 
 @rate_limit(max_requests=20, window_seconds=60)
 async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """انتخاب پک - افزودن مستقیم به سبد"""
+    """
+    انتخاب پک - افزودن مستقیم به سبد
+    ✅ FIX: استفاده از Lock
+    """
     query = update.callback_query
     
     data = query.data.split(":")
@@ -288,58 +303,64 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    # ثبت کاربر اگه قبلاً ثبت نشده
-    user = update.effective_user
-    db.add_user(user.id, user.username, user.first_name)
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
     
-    pack = db.get_pack(pack_id)
-    product = db.get_product(product_id)
-    
-    if not pack or not product:
-        await query.answer("❌ محصول یافت نشد!", show_alert=True)
-        return
-    
-    _, _, pack_name, pack_qty, price = pack
-    _, prod_name, *_ = product
-    
-    # افزودن 1 بار کلیک = pack_qty عدد
-    try:
-        db.add_to_cart(user_id, product_id, pack_id, quantity=1)
-        log_user_action(user_id, "افزودن به سبد", f"{prod_name} - {pack_name}")
-    except Exception as e:
-        logger.error(f"❌ خطا در افزودن به سبد: {e}")
-        await query.answer("❌ خطا در افزودن به سبد!", show_alert=True)
-        return
-    
-    # محاسبه تعداد کل در سبد
-    cart = db.get_cart(user_id)
-    total_this_pack_count = 0
-    total_price_this_pack = 0
-    total_items = 0
-    total_price_all = 0
-    
-    for item in cart:
-        cart_id, p_name, pk_name, pk_qty, pk_price, item_qty = item
+    # ✅ قفل کن - صبر کن تا کار قبلی تموم شه
+    async with cart_locks[user_id]:
+        # ثبت کاربر اگه قبلاً ثبت نشده
+        user = update.effective_user
+        db.add_user(user.id, user.username, user.first_name)
         
-        if pk_name == pack_name and p_name == prod_name:
-            total_this_pack_count += item_qty
+        pack = db.get_pack(pack_id)
+        product = db.get_product(product_id)
+        
+        if not pack or not product:
+            await query.answer("❌ محصول یافت نشد!", show_alert=True)
+            return
+        
+        _, _, pack_name, pack_qty, price = pack
+        _, prod_name, *_ = product
+        
+        # افزودن 1 بار کلیک = pack_qty عدد
+        try:
+            db.add_to_cart(user_id, product_id, pack_id, quantity=1)
+            log_user_action(user_id, "افزودن به سبد", f"{prod_name} - {pack_name}")
+        except Exception as e:
+            logger.error(f"❌ خطا در افزودن به سبد: {e}")
+            await query.answer("❌ خطا در افزودن به سبد!", show_alert=True)
+            return
+        
+        # محاسبه تعداد کل در سبد
+        cart = db.get_cart(user_id)
+        total_this_pack_count = 0
+        total_price_this_pack = 0
+        total_items = 0
+        total_price_all = 0
+        
+        for item in cart:
+            cart_id, p_name, pk_name, pk_qty, pk_price, item_qty = item
+            
+            if pk_name == pack_name and p_name == prod_name:
+                total_this_pack_count += item_qty
+                unit_price = pk_price / pk_qty
+                total_price_this_pack += unit_price * item_qty
+            
+            total_items += item_qty
             unit_price = pk_price / pk_qty
-            total_price_this_pack += unit_price * item_qty
+            total_price_all += unit_price * item_qty
         
-        total_items += item_qty
-        unit_price = pk_price / pk_qty
-        total_price_all += unit_price * item_qty
-    
-    # نمایش Alert
-    alert_text = f"✅ {pack_qty} عدد اضافه شد!\n\n"
-    alert_text += f"📦 {pack_name}\n"
-    alert_text += f"🔢 تعداد در سبد: {total_this_pack_count} عدد\n"
-    alert_text += f"💰 {total_price_this_pack:,.0f} تومان\n\n"
-    alert_text += f"📊 کل کالاها در سبد: {total_items} عدد\n"
-    alert_text += f"💳 جمع کل: {total_price_all:,.0f} تومان\n\n"
-    alert_text += f"✅ درصورت تمام شدن روی سبد خرید کلیک کنید"
-    
-    await query.answer(alert_text, show_alert=True)
+        # نمایش Alert
+        alert_text = f"✅ {pack_qty} عدد اضافه شد!\n\n"
+        alert_text += f"📦 {pack_name}\n"
+        alert_text += f"🔢 تعداد در سبد: {total_this_pack_count} عدد\n"
+        alert_text += f"💰 {total_price_this_pack:,.0f} تومان\n\n"
+        alert_text += f"📊 کل کالاها در سبد: {total_items} عدد\n"
+        alert_text += f"💳 جمع کل: {total_price_all:,.0f} تومان\n\n"
+        alert_text += f"✅ درصورت تمام شدن روی سبد خرید کلیک کنید"
+        
+        await query.answer(alert_text, show_alert=True)
 
 
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -391,11 +412,12 @@ async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: افزایش تعداد در سبد خرید
     استفاده از helper function برای حذف تکرار کد
+    ✅ Lock به صورت خودکار در helper function اعمال میشه
     """
     query = update.callback_query
     cart_id = int(query.data.split(":")[1])
     
-    # استفاده از helper function
+    # استفاده از helper function (که خودش Lock داره)
     success, new_qty, message = await _update_cart_item_quantity(update, context, cart_id, delta=+1)
     
     if not success:
@@ -413,11 +435,12 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: کاهش تعداد در سبد خرید
     استفاده از helper function برای حذف تکرار کد
+    ✅ Lock به صورت خودکار در helper function اعمال میشه
     """
     query = update.callback_query
     cart_id = int(query.data.split(":")[1])
     
-    # استفاده از helper function
+    # استفاده از helper function (که خودش Lock داره)
     success, new_qty, message = await _update_cart_item_quantity(update, context, cart_id, delta=-1)
     
     if not success:
@@ -432,7 +455,10 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حذف از سبد خرید"""
+    """
+    حذف از سبد خرید
+    ✅ FIX: استفاده از Lock
+    """
     query = update.callback_query
     await query.answer("🗑 حذف شد!")
     
@@ -440,33 +466,48 @@ async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    try:
-        db.remove_from_cart(cart_id)
-    except Exception as e:
-        logger.error(f"❌ خطا در حذف از سبد: {e}")
-        await query.answer("❌ خطا در حذف آیتم!", show_alert=True)
-        return
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
     
-    # بروزرسانی نمایش سبد
-    await _refresh_cart_display(update, context)
+    # ✅ قفل کن
+    async with cart_locks[user_id]:
+        try:
+            db.remove_from_cart(cart_id)
+        except Exception as e:
+            logger.error(f"❌ خطا در حذف از سبد: {e}")
+            await query.answer("❌ خطا در حذف آیتم!", show_alert=True)
+            return
+        
+        # بروزرسانی نمایش سبد
+        await _refresh_cart_display(update, context)
 
 
 async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """خالی کردن سبد خرید"""
+    """
+    خالی کردن سبد خرید
+    ✅ FIX: استفاده از Lock
+    """
     query = update.callback_query
     await query.answer("🗑 سبد خرید خالی شد!")
     
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    try:
-        db.clear_cart(user_id)
-    except Exception as e:
-        logger.error(f"❌ خطا در خالی کردن سبد: {e}")
-        await query.answer("❌ خطا در خالی کردن سبد!", show_alert=True)
-        return
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
     
-    await query.message.edit_text("✅ سبد خرید شما خالی شد.")
+    # ✅ قفل کن
+    async with cart_locks[user_id]:
+        try:
+            db.clear_cart(user_id)
+        except Exception as e:
+            logger.error(f"❌ خطا در خالی کردن سبد: {e}")
+            await query.answer("❌ خطا در خالی کردن سبد!", show_alert=True)
+            return
+        
+        await query.message.edit_text("✅ سبد خرید شما خالی شد.")
 
 
 # ==================== ORDER FINALIZATION ====================
@@ -700,200 +741,214 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش با Transaction
     تمام عملیات داخل یک transaction هستن
+    ✅ FIXED باگ 5: استفاده از Lock برای Race Condition
     """
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    cart = db.get_cart(user_id)
-    if not cart:
-        await query.message.reply_text("سبد خرید شما خالی است!")
-        return
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
     
-    # آماده‌سازی آیتم‌های سفارش
-    items = []
-    total_price = 0
-    
-    for item in cart:
-        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+    # ✅ قفل کن - این خیلی مهمه چون cart رو خالی میکنیم
+    async with cart_locks[user_id]:
+        cart = db.get_cart(user_id)
+        if not cart:
+            await query.message.reply_text("سبد خرید شما خالی است!")
+            return
         
-        unit_price = pack_price / pack_qty
-        item_total = unit_price * item_qty
-        total_price += item_total
+        # آماده‌سازی آیتم‌های سفارش
+        items = []
+        total_price = 0
         
-        items.append({
-            'product': product_name,
-            'pack': pack_name,
-            'pack_quantity': pack_qty,
-            'unit_price': unit_price,
-            'quantity': item_qty,
-            'price': item_total,
-            'pack_price': pack_price
-        })
-    
-    discount_code = context.user_data.get('applied_discount_code')
-    discount_amount = context.user_data.get('discount_amount', 0)
-    final_price = total_price - discount_amount
-    
-    try:
-        # ✅ FIX: استفاده از Transaction برای atomicity
-        with db.transaction() as cursor:
-            # 1. ثبت سفارش
-            cursor.execute("""
-                INSERT INTO orders 
-                (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
-            """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                  discount_amount, final_price, discount_code))
-            order_id = cursor.lastrowid
+        for item in cart:
+            cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
             
-            # 2. ثبت استفاده از تخفیف (اگر وجود داشت)
-            if discount_code:
+            unit_price = pack_price / pack_qty
+            item_total = unit_price * item_qty
+            total_price += item_total
+            
+            items.append({
+                'product': product_name,
+                'pack': pack_name,
+                'pack_quantity': pack_qty,
+                'unit_price': unit_price,
+                'quantity': item_qty,
+                'price': item_total,
+                'pack_price': pack_price
+            })
+        
+        discount_code = context.user_data.get('applied_discount_code')
+        discount_amount = context.user_data.get('discount_amount', 0)
+        final_price = total_price - discount_amount
+        
+        try:
+            # ✅ FIX: استفاده از Transaction برای atomicity
+            with db.transaction() as cursor:
+                # 1. ثبت سفارش
                 cursor.execute("""
-                    INSERT INTO discount_usage (user_id, discount_code, order_id) 
-                    VALUES (?, ?, ?)
-                """, (user_id, discount_code, order_id))
+                    INSERT INTO orders 
+                    (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
+                """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
+                      discount_amount, final_price, discount_code))
+                order_id = cursor.lastrowid
                 
-                cursor.execute("""
-                    UPDATE discount_codes 
-                    SET used_count = used_count + 1 
-                    WHERE code = ?
-                """, (discount_code,))
+                # 2. ثبت استفاده از تخفیف (اگر وجود داشت)
+                if discount_code:
+                    cursor.execute("""
+                        INSERT INTO discount_usage (user_id, discount_code, order_id) 
+                        VALUES (?, ?, ?)
+                    """, (user_id, discount_code, order_id))
+                    
+                    cursor.execute("""
+                        UPDATE discount_codes 
+                        SET used_count = used_count + 1 
+                        WHERE code = ?
+                    """, (discount_code,))
+                
+                # 3. خالی کردن سبد خرید
+                cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
             
-            # 3. خالی کردن سبد خرید
-            cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
-        
-        # ✅ Transaction موفق بود - حالا می‌تونیم log کنیم
-        log_order(order_id, user_id, "pending", final_price)
-        
-        if discount_code:
-            log_discount_usage(user_id, discount_code, discount_amount)
-        
-        # پاکسازی context
-        context.user_data.pop('applied_discount_code', None)
-        context.user_data.pop('discount_amount', None)
-        context.user_data.pop('discount_id', None)
-        
-        # Invalidate cache
-        db._invalidate_cache(f"cart:{user_id}")
-        db._invalidate_cache("stats:")
-        
-        # نمایش پیام موفقیت
-        await query.message.reply_text(
-            MESSAGES["order_received"],
-            reply_markup=user_main_keyboard()
-        )
-        
-        # ارسال به ادمین
-        from handlers.order import send_order_to_admin
-        await send_order_to_admin(context, order_id)
-        
-        logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
-        
-    except Exception as e:
-        # ✅ Transaction خودکار rollback شده
-        logger.error(f"❌ خطا در ثبت سفارش: {e}")
-        await query.message.reply_text(
-            "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
-            reply_markup=user_main_keyboard()
-        )
+            # ✅ Transaction موفق بود - حالا می‌تونیم log کنیم
+            log_order(order_id, user_id, "pending", final_price)
+            
+            if discount_code:
+                log_discount_usage(user_id, discount_code, discount_amount)
+            
+            # پاکسازی context
+            context.user_data.pop('applied_discount_code', None)
+            context.user_data.pop('discount_amount', None)
+            context.user_data.pop('discount_id', None)
+            
+            # Invalidate cache
+            db._invalidate_cache(f"cart:{user_id}")
+            db._invalidate_cache("stats:")
+            
+            # نمایش پیام موفقیت
+            await query.message.reply_text(
+                MESSAGES["order_received"],
+                reply_markup=user_main_keyboard()
+            )
+            
+            # ارسال به ادمین
+            from handlers.order import send_order_to_admin
+            await send_order_to_admin(context, order_id)
+            
+            logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
+            
+        except Exception as e:
+            # ✅ Transaction خودکار rollback شده
+            logger.error(f"❌ خطا در ثبت سفارش: {e}")
+            await query.message.reply_text(
+                "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
+                reply_markup=user_main_keyboard()
+            )
 
 
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش از پیام با Transaction
+    ✅ FIXED باگ 5: استفاده از Lock برای Race Condition
     """
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    cart = db.get_cart(user_id)
-    if not cart:
-        await update.message.reply_text("سبد خرید شما خالی است!")
-        return
+    # ✅ اگه این کاربر قفل نداره، بساز
+    if user_id not in cart_locks:
+        cart_locks[user_id] = asyncio.Lock()
     
-    # آماده‌سازی آیتم‌های سفارش
-    items = []
-    total_price = 0
-    
-    for item in cart:
-        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+    # ✅ قفل کن
+    async with cart_locks[user_id]:
+        cart = db.get_cart(user_id)
+        if not cart:
+            await update.message.reply_text("سبد خرید شما خالی است!")
+            return
         
-        unit_price = pack_price / pack_qty
-        item_total = unit_price * item_qty
-        total_price += item_total
+        # آماده‌سازی آیتم‌های سفارش
+        items = []
+        total_price = 0
         
-        items.append({
-            'product': product_name,
-            'pack': pack_name,
-            'pack_quantity': pack_qty,
-            'unit_price': unit_price,
-            'quantity': item_qty,
-            'price': item_total,
-            'pack_price': pack_price
-        })
-    
-    discount_code = context.user_data.get('applied_discount_code')
-    discount_amount = context.user_data.get('discount_amount', 0)
-    final_price = total_price - discount_amount
-    
-    try:
-        # ✅ FIX: استفاده از Transaction
-        with db.transaction() as cursor:
-            # 1. ثبت سفارش
-            cursor.execute("""
-                INSERT INTO orders 
-                (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
-            """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                  discount_amount, final_price, discount_code))
-            order_id = cursor.lastrowid
+        for item in cart:
+            cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
             
-            # 2. ثبت استفاده از تخفیف
-            if discount_code:
+            unit_price = pack_price / pack_qty
+            item_total = unit_price * item_qty
+            total_price += item_total
+            
+            items.append({
+                'product': product_name,
+                'pack': pack_name,
+                'pack_quantity': pack_qty,
+                'unit_price': unit_price,
+                'quantity': item_qty,
+                'price': item_total,
+                'pack_price': pack_price
+            })
+        
+        discount_code = context.user_data.get('applied_discount_code')
+        discount_amount = context.user_data.get('discount_amount', 0)
+        final_price = total_price - discount_amount
+        
+        try:
+            # ✅ FIX: استفاده از Transaction
+            with db.transaction() as cursor:
+                # 1. ثبت سفارش
                 cursor.execute("""
-                    INSERT INTO discount_usage (user_id, discount_code, order_id) 
-                    VALUES (?, ?, ?)
-                """, (user_id, discount_code, order_id))
+                    INSERT INTO orders 
+                    (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
+                """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
+                      discount_amount, final_price, discount_code))
+                order_id = cursor.lastrowid
                 
-                cursor.execute("""
-                    UPDATE discount_codes 
-                    SET used_count = used_count + 1 
-                    WHERE code = ?
-                """, (discount_code,))
+                # 2. ثبت استفاده از تخفیف
+                if discount_code:
+                    cursor.execute("""
+                        INSERT INTO discount_usage (user_id, discount_code, order_id) 
+                        VALUES (?, ?, ?)
+                    """, (user_id, discount_code, order_id))
+                    
+                    cursor.execute("""
+                        UPDATE discount_codes 
+                        SET used_count = used_count + 1 
+                        WHERE code = ?
+                    """, (discount_code,))
+                
+                # 3. خالی کردن سبد
+                cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
             
-            # 3. خالی کردن سبد
-            cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
-        
-        # Transaction موفق - ثبت log
-        log_order(order_id, user_id, "pending", final_price)
-        
-        if discount_code:
-            log_discount_usage(user_id, discount_code, discount_amount)
-        
-        # پاکسازی
-        context.user_data.pop('applied_discount_code', None)
-        context.user_data.pop('discount_amount', None)
-        context.user_data.pop('discount_id', None)
-        
-        db._invalidate_cache(f"cart:{user_id}")
-        db._invalidate_cache("stats:")
-        
-        await update.message.reply_text(
-            MESSAGES["order_received"],
-            reply_markup=user_main_keyboard()
-        )
-        
-        from handlers.order import send_order_to_admin
-        await send_order_to_admin(context, order_id)
-        
-        logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
-        
-    except Exception as e:
-        logger.error(f"❌ خطا در ثبت سفارش: {e}")
-        await update.message.reply_text(
-            "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
-            reply_markup=user_main_keyboard()
-        )
+            # Transaction موفق - ثبت log
+            log_order(order_id, user_id, "pending", final_price)
+            
+            if discount_code:
+                log_discount_usage(user_id, discount_code, discount_amount)
+            
+            # پاکسازی
+            context.user_data.pop('applied_discount_code', None)
+            context.user_data.pop('discount_amount', None)
+            context.user_data.pop('discount_id', None)
+            
+            db._invalidate_cache(f"cart:{user_id}")
+            db._invalidate_cache("stats:")
+            
+            await update.message.reply_text(
+                MESSAGES["order_received"],
+                reply_markup=user_main_keyboard()
+            )
+            
+            from handlers.order import send_order_to_admin
+            await send_order_to_admin(context, order_id)
+            
+            logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
+            
+        except Exception as e:
+            logger.error(f"❌ خطا در ثبت سفارش: {e}")
+            await update.message.reply_text(
+                "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
+                reply_markup=user_main_keyboard()
+            )
 
 
 # ==================== SHIPPING & INVOICE ====================

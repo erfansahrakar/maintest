@@ -248,13 +248,18 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
     if user_id == ADMIN_ID:
         return
     
-    allowed, remaining_time = rate_limiter.check_rate_limit(
+    # ✅ FIX: حالا 3 تا مقدار برمیگردونه
+    allowed, remaining_time, show_alert = rate_limiter.check_rate_limit(
         user_id,
         max_requests=20,
         window_seconds=60
     )
     
     if not allowed:
+        # ✅ فقط اگه show_alert=True باشه، پیام بده
+        if not show_alert:
+            return  # Silent mode
+        
         minutes = remaining_time // 60
         seconds = remaining_time % 60
         

@@ -51,8 +51,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ✅ FIX: اضافه کردن rate_limit به start
-@rate_limit(max_requests=5, window_seconds=60)
+# ✅ FIX: اضافه کردن rate_limit به start - محدودیت افزایش یافت
+@rate_limit(max_requests=30, window_seconds=60)
 async def start(update: Update, context):
     """هندلر دستور /start"""
     user_id = update.effective_user.id
@@ -66,8 +66,8 @@ async def start(update: Update, context):
         await user_start(update, context)
 
 
-# ✅ FIX: اضافه کردن rate_limit به handle_text_messages
-@rate_limit(max_requests=20, window_seconds=60)
+# ✅ FIX: اضافه کردن rate_limit به handle_text_messages - محدودیت افزایش یافت
+@rate_limit(max_requests=50, window_seconds=60)
 async def handle_text_messages(update: Update, context):
     """مدیریت پیام‌های متنی"""
     text = update.message.text
@@ -133,8 +133,8 @@ async def handle_text_messages(update: Update, context):
         )
 
 
-# ✅ FIX: اضافه کردن rate_limit به handle_photos
-@rate_limit(max_requests=10, window_seconds=60)
+# ✅ FIX: اضافه کردن rate_limit به handle_photos - محدودیت افزایش یافت
+@rate_limit(max_requests=30, window_seconds=60)
 async def handle_photos(update: Update, context):
     """مدیریت عکس‌ها (رسیدها)"""
     from handlers.order import handle_receipt

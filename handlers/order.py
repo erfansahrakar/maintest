@@ -150,7 +150,7 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 # ==================== USER HANDLERS ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
     user_id = update.effective_user.id
@@ -212,7 +212,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, reply_markup=keyboard)
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=30, window_seconds=60)
 async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ادامه فرآیند پرداخت

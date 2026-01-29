@@ -1,16 +1,29 @@
 """
 پنل مدیریتی پیشرفته
-✅ آمار real-time
-✅ مدیریت کاربران
-✅ گزارش‌های تحلیلی
-✅ مانیتورینگ سیستم
+
 """
 import json
+import re
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import ADMIN_ID
 from logger import log_admin_action
+
+
+def escape_markdown(text: str) -> str:
+    """
+    Escape کردن کاراکترهای ویژه Markdown
+    برای جلوگیری از BadRequest: Can't parse entities
+    """
+    if not text:
+        return ""
+    
+    # کاراکترهای ویژه که باید escape شوند
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    
+    # Escape کردن
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
 
 
 async def admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,7 +144,10 @@ async def show_full_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # محصولات
     text += "**🏷 محصولات:**\n"
     text += f"├ تعداد: {stats['total_products']}\n"
-    text += f"└ محبوب‌ترین: {stats['most_popular']}\n"
+    
+    # ✅ FIX: Escape کردن نام محصول
+    most_popular = escape_markdown(stats['most_popular'])
+    text += f"└ محبوب‌ترین: {most_popular}\n"
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]]
     
@@ -190,8 +206,17 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     text += "**🆕 آخرین کاربران:**\n"
     for user in recent_users:
         user_id, username, first_name, created_at = user
-        username_str = f"@{username}" if username else "بدون username"
-        text += f"├ {first_name} ({username_str})\n"
+        
+        # ✅ FIX: Escape کردن first_name و username
+        safe_first_name = escape_markdown(first_name) if first_name else "نامشخص"
+        
+        if username:
+            # @ رو escape نکنیم چون باید به عنوان username باقی بمونه
+            safe_username = f"@{escape_markdown(username)}"
+        else:
+            safe_username = "بدون username"
+        
+        text += f"├ {safe_first_name} ({safe_username})\n"
     
     keyboard = [
         [
@@ -294,8 +319,12 @@ async def show_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "✅ خطایی ثبت نشده است!"
     else:
         for idx, err in enumerate(errors, 1):
-            text += f"**{idx}. {err['type']}**\n"
-            text += f"├ پیام: {err['message'][:50]}...\n"
+            # ✅ FIX: Escape کردن error type و message
+            error_type = escape_markdown(err['type'])
+            error_msg = escape_markdown(err['message'][:50])
+            
+            text += f"**{idx}\\. {error_type}**\n"
+            text += f"├ پیام: {error_msg}\\.\\.\\.\n"
             text += f"├ زمان: {err['timestamp'][11:19]}\n"
             if err.get('user_id'):
                 text += f"└ کاربر: {err['user_id']}\n"
@@ -362,7 +391,7 @@ async def show_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text += "\n**⏰ ساعات شلوغ:**\n"
     for hour, count in peak_hours:
-        text += f"├ {hour}:00 - {count} سفارش\n"
+        text += f"├ {hour}:00 \\- {count} سفارش\n"
     
     keyboard = [
         [InlineKeyboardButton("📊 گزارش کامل", callback_data="analytics:sales_weekly")],

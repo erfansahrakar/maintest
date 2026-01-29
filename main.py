@@ -379,7 +379,7 @@ def main():
     )
     
     from handlers.discount import (
-        create_discount_start, discount_code_received, discount_type_selected,
+        create_discount_start, discount_code_received, discount_type_received,
         discount_value_received, discount_min_purchase_received,
         discount_max_received, discount_limit_received,
         discount_start_received, discount_end_received,
@@ -531,7 +531,7 @@ def main():
         entry_points=[CallbackQueryHandler(create_discount_start, pattern="^create_discount$")],
         states={
             DISCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_code_received)],
-            DISCOUNT_TYPE: [CallbackQueryHandler(discount_type_selected, pattern="^discount_type:")],
+            DISCOUNT_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_type_received)],
             DISCOUNT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_value_received)],
             DISCOUNT_MIN_PURCHASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_min_purchase_received)],
             DISCOUNT_MAX: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_max_received)],

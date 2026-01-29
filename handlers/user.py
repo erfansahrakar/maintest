@@ -29,7 +29,7 @@ cart_locks = {}  # به ازای هر کاربر یک Lock
 
 # ==================== HELPER FUNCTIONS ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                      cart_id: int, delta: int):
     """
@@ -106,7 +106,7 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
             return False, 0, "❌ خطا در بروزرسانی سبد!"
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     بروزرسانی نمایش سبد خرید
@@ -198,7 +198,7 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ==================== USER START & PRODUCT DISPLAY ====================
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=30, window_seconds=60)
 async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پیام خوش‌آمدگویی به کاربر"""
     user = update.effective_user
@@ -254,7 +254,7 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int):
     """نمایش محصول به کاربر"""
     db = context.bot_data['db']
@@ -288,7 +288,7 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, produ
 
 # ==================== CART OPERATIONS ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     انتخاب پک - افزودن مستقیم به سبد
@@ -363,7 +363,7 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer(alert_text, show_alert=True)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سبد خرید"""
     user_id = update.effective_user.id
@@ -409,7 +409,7 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-@rate_limit(max_requests=30, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: افزایش تعداد در سبد خرید
@@ -433,7 +433,7 @@ async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _refresh_cart_display(update, context)
 
 
-@rate_limit(max_requests=30, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: کاهش تعداد در سبد خرید
@@ -457,7 +457,7 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _refresh_cart_display(update, context)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=50, window_seconds=60)
 async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     حذف از سبد خرید
@@ -487,7 +487,7 @@ async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _refresh_cart_display(update, context)
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=30, window_seconds=60)
 async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     خالی کردن سبد خرید

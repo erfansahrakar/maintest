@@ -258,6 +258,7 @@ class Database:
                 max_discount REAL,
                 usage_limit INTEGER,
                 used_count INTEGER DEFAULT 0,
+                per_user_limit INTEGER,
                 start_date TIMESTAMP,
                 end_date TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
@@ -291,14 +292,28 @@ class Database:
         
         conn.commit()
         self._create_indexes()
-        self._migrate_existing_orders()
+        self._migrate_existing_data()
     
-    def _migrate_existing_orders(self):
-        """اضافه کردن expires_at به سفارشات قدیمی"""
+    def _migrate_existing_data(self):
+        """
+        ✅ NEW: اضافه کردن ستون per_user_limit به جدول discount_codes اگر وجود نداشته باشد
+        و migrate کردن سفارشات قدیمی
+        """
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
             
+            # چک کردن وجود ستون per_user_limit
+            cursor.execute("PRAGMA table_info(discount_codes)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'per_user_limit' not in columns:
+                logger.info("🔄 اضافه کردن ستون per_user_limit به جدول discount_codes...")
+                cursor.execute("ALTER TABLE discount_codes ADD COLUMN per_user_limit INTEGER")
+                conn.commit()
+                logger.info("✅ ستون per_user_limit اضافه شد")
+            
+            # چک کردن وجود ستون expires_at در orders
             cursor.execute("PRAGMA table_info(orders)")
             columns = [col[1] for col in cursor.fetchall()]
             
@@ -334,6 +349,7 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
             "CREATE INDEX IF NOT EXISTS idx_temp_discount_user ON temp_discount_codes(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_discount_usage_user_code ON discount_usage(user_id, discount_code)",
         ]
         
         for index_sql in indexes:
@@ -732,11 +748,29 @@ class Database:
     # ==================== تخفیف ====================
     
     def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, 
-                       max_discount: Optional[float] = None, usage_limit: Optional[int] = None, 
+                       max_discount: Optional[float] = None, usage_limit: Optional[int] = None,
+                       per_user_limit: Optional[int] = None,
                        start_date: Optional[str] = None, end_date: Optional[str] = None):
+        """
+        ایجاد کد تخفیف جدید
+        
+        Args:
+            code: کد تخفیف
+            type: نوع تخفیف (percentage یا fixed)
+            value: مقدار تخفیف
+            min_purchase: حداقل خرید
+            max_discount: حداکثر تخفیف (برای درصدی)
+            usage_limit: محدودیت کل استفاده
+            per_user_limit: محدودیت استفاده به ازای هر کاربر
+            start_date: تاریخ شروع
+            end_date: تاریخ پایان
+        """
         with self.transaction() as cursor:
-            cursor.execute("INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
-                         (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date))
+            cursor.execute("""
+                INSERT INTO discount_codes 
+                (code, type, value, min_purchase, max_discount, usage_limit, per_user_limit, start_date, end_date) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (code, type, value, min_purchase, max_discount, usage_limit, per_user_limit, start_date, end_date))
             discount_id = cursor.lastrowid
         return discount_id
     
@@ -747,10 +781,38 @@ class Database:
         return cursor.fetchone()
     
     def get_all_discounts(self):
+        """دریافت تمام کدهای تخفیف"""
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM discount_codes ORDER BY created_at DESC")
         return cursor.fetchall()
+    
+    def get_user_discount_usage_count(self, user_id: int, discount_code: str) -> int:
+        """
+        ✅ NEW: دریافت تعداد دفعات استفاده کاربر از یک کد تخفیف
+        
+        Args:
+            user_id: شناسه کاربر
+            discount_code: کد تخفیف
+            
+        Returns:
+            تعداد دفعات استفاده
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM discount_usage 
+                WHERE user_id = ? AND discount_code = ?
+            """, (user_id, discount_code))
+            
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        
+        except Exception as e:
+            logger.error(f"❌ خطا در دریافت تعداد استفاده کاربر {user_id} از کد {discount_code}: {e}")
+            return 0
     
     def use_discount(self, user_id: int, discount_code: str, order_id: int):
         with self.transaction() as cursor:

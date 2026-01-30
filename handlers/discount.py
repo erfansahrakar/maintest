@@ -9,6 +9,7 @@ from validators import Validators
 from states import (
     DISCOUNT_CODE, DISCOUNT_TYPE, DISCOUNT_VALUE,
     DISCOUNT_MIN_PURCHASE, DISCOUNT_MAX, DISCOUNT_LIMIT,
+    DISCOUNT_PER_USER_LIMIT,
     DISCOUNT_START, DISCOUNT_END
 )
 from keyboards import (
@@ -27,9 +28,19 @@ logger = logging.getLogger(__name__)
 
 # ==================== Helper Functions ====================
 
-def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
+def calculate_discount(total_price: float, discount_code: str, db, user_id: int = None) -> tuple:
     """
     محاسبه تخفیف با چک Division by Zero و Validation کامل
+    ✅ NEW: اضافه شدن چک محدودیت به ازای هر کاربر
+    
+    Args:
+        total_price: مبلغ کل خرید
+        discount_code: کد تخفیف
+        db: نمونه دیتابیس
+        user_id: شناسه کاربر (برای چک محدودیت شخصی)
+    
+    Returns:
+        (discount_amount, final_price, error_message)
     """
     if total_price <= 0:
         return 0, total_price, "❌ مبلغ خرید نامعتبر است!"
@@ -39,7 +50,8 @@ def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
     if not discount_info:
         return 0, total_price, "❌ کد تخفیف نامعتبر است!"
     
-    discount_id, code, discount_type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount_info
+    # ✅ UPDATED: اضافه شدن per_user_limit به unpacking
+    discount_id, code, discount_type, value, min_purchase, max_discount, usage_limit, used_count, per_user_limit, start_date, end_date, is_active, created_at = discount_info
     
     if not is_active:
         return 0, total_price, "❌ این کد تخفیف غیرفعال است!"
@@ -64,6 +76,12 @@ def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
     
     if usage_limit and used_count >= usage_limit:
         return 0, total_price, "❌ این کد تخفیف به حداکثر تعداد استفاده رسیده است!"
+    
+    # ✅ NEW: چک محدودیت به ازای هر کاربر
+    if per_user_limit and user_id:
+        user_usage_count = db.get_user_discount_usage_count(user_id, discount_code)
+        if user_usage_count >= per_user_limit:
+            return 0, total_price, f"❌ شما قبلاً {per_user_limit} بار از این کد استفاده کرده‌اید!"
     
     if min_purchase > 0 and total_price < min_purchase:
         return 0, total_price, f"❌ حداقل خرید برای این کد {min_purchase:,.0f} تومان است!"
@@ -351,7 +369,7 @@ async def discount_max_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت محدودیت استفاده"""
+    """دریافت محدودیت استفاده کل"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
@@ -369,6 +387,42 @@ async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_
         context.user_data['discount_limit'] = usage_limit if usage_limit > 0 else None
         
         await update.message.reply_text(
+            "👤 محدودیت استفاده به ازای هر کاربر:\n"
+            "(هر نفر چند بار می‌تواند از این کد استفاده کند؟)\n"
+            "(برای نامحدود عدد 0 وارد کنید)\n\n"
+            "مثال: 3 (هر نفر فقط ۳ بار)",
+            reply_markup=cancel_keyboard()
+        )
+        
+        return DISCOUNT_PER_USER_LIMIT
+        
+    except ValueError:
+        await update.message.reply_text(
+            "❌ لطفاً یک عدد صحیح وارد کنید!",
+            reply_markup=cancel_keyboard()
+        )
+        return DISCOUNT_LIMIT
+
+
+async def discount_per_user_limit_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت محدودیت استفاده به ازای هر کاربر"""
+    if update.message.text == "❌ لغو":
+        await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
+        return ConversationHandler.END
+    
+    try:
+        per_user_limit = int(update.message.text)
+        
+        if per_user_limit < 0:
+            await update.message.reply_text(
+                "❌ تعداد نمی‌تواند منفی باشد!",
+                reply_markup=cancel_keyboard()
+            )
+            return DISCOUNT_PER_USER_LIMIT
+        
+        context.user_data['discount_per_user_limit'] = per_user_limit if per_user_limit > 0 else None
+        
+        await update.message.reply_text(
             "📅 تاریخ شروع اعتبار را وارد کنید:\n"
             "(فرمت: YYYY-MM-DD مثل 2024-12-25)\n"
             "(برای شروع فوری عدد 0 وارد کنید)",
@@ -382,7 +436,7 @@ async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_
             "❌ لطفاً یک عدد صحیح وارد کنید!",
             reply_markup=cancel_keyboard()
         )
-        return DISCOUNT_LIMIT
+        return DISCOUNT_PER_USER_LIMIT
 
 
 async def discount_start_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -451,6 +505,7 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
             min_purchase=context.user_data.get('discount_min_purchase', 0),
             max_discount=context.user_data.get('discount_max'),
             usage_limit=context.user_data.get('discount_limit'),
+            per_user_limit=context.user_data.get('discount_per_user_limit'),
             start_date=context.user_data.get('discount_start'),
             end_date=end_date
         )
@@ -477,7 +532,10 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
         summary += f"💳 حداقل خرید: {context.user_data['discount_min_purchase']:,.0f} تومان\n"
     
     if context.user_data.get('discount_limit'):
-        summary += f"🔢 محدودیت: {context.user_data['discount_limit']} بار\n"
+        summary += f"🔢 محدودیت کل: {context.user_data['discount_limit']} بار\n"
+    
+    if context.user_data.get('discount_per_user_limit'):
+        summary += f"👤 محدودیت هر کاربر: {context.user_data['discount_per_user_limit']} بار\n"
     
     if context.user_data.get('discount_start'):
         summary += f"📅 شروع: {context.user_data['discount_start'][:10]}\n"
@@ -538,7 +596,7 @@ async def view_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ تخفیف یافت نشد!", show_alert=True)
         return
     
-    discount_id, code, type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount
+    discount_id, code, type, value, min_purchase, max_discount, usage_limit, used_count, per_user_limit, start_date, end_date, is_active, created_at = discount
     
     text = f"🎫 **کد تخفیف: {code}**\n\n"
     text += f"📊 وضعیت: {'✅ فعال' if is_active else '❌ غیرفعال'}\n\n"
@@ -553,11 +611,14 @@ async def view_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if min_purchase > 0:
         text += f"💳 حداقل خرید: {min_purchase:,.0f} تومان\n"
     
-    text += f"\n🔢 استفاده: {used_count}"
+    text += f"\n🔢 استفاده کل: {used_count}"
     if usage_limit:
         text += f" از {usage_limit}"
     else:
         text += " (نامحدود)"
+    
+    if per_user_limit:
+        text += f"\n👤 محدودیت هر کاربر: {per_user_limit} بار"
     
     if start_date:
         text += f"\n📅 شروع: {start_date[:10]}"

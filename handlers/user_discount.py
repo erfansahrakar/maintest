@@ -79,23 +79,29 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
     
     # بررسی تاریخ شروع
     if start_date:
-        start = datetime.fromisoformat(start_date)
-        if datetime.now() < start:
-            await update.message.reply_text(
-                f"❌ این کد تخفیف از تاریخ {start_date[:10]} فعال می‌شود!",
-                reply_markup=user_main_keyboard()
-            )
-            return ConversationHandler.END
+        try:
+            start = datetime.fromisoformat(start_date)
+            if datetime.now() < start:
+                await update.message.reply_text(
+                    f"❌ این کد تخفیف از تاریخ {start_date[:10]} فعال می‌شود!",
+                    reply_markup=user_main_keyboard()
+                )
+                return ConversationHandler.END
+        except (ValueError, TypeError):
+            pass  # اگر فرمت تاریخ نامعتبر بود، ادامه بده
     
     # بررسی تاریخ انقضا
     if end_date:
-        end = datetime.fromisoformat(end_date)
-        if datetime.now() > end:
-            await update.message.reply_text(
-                "❌ این کد تخفیف منقضی شده است!",
-                reply_markup=user_main_keyboard()
-            )
-            return ConversationHandler.END
+        try:
+            end = datetime.fromisoformat(end_date)
+            if datetime.now() > end:
+                await update.message.reply_text(
+                    "❌ این کد تخفیف منقضی شده است!",
+                    reply_markup=user_main_keyboard()
+                )
+                return ConversationHandler.END
+        except (ValueError, TypeError):
+            pass  # اگر فرمت تاریخ نامعتبر بود، ادامه بده
     
     # بررسی محدودیت استفاده کل
     if usage_limit and used_count >= usage_limit:

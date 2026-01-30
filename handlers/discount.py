@@ -1,5 +1,5 @@
 """
-مدیریت تخفیف‌ها
+مدیریت تخفیف‌ها - نسخه اصلاح شده ✅
 
 """
 from telegram import Update
@@ -25,21 +25,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# ==================== ✅ NEW: Helper Functions ====================
+# ==================== Helper Functions ====================
 
 def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
     """
     محاسبه تخفیف با چک Division by Zero و Validation کامل
-    
-    Args:
-        total_price: مبلغ کل خرید
-        discount_code: کد تخفیف
-        db: instance دیتابیس
-    
-    Returns:
-        (discount_amount, final_price, error_message)
     """
-    # ✅ FIX: چک مبلغ کل
     if total_price <= 0:
         return 0, total_price, "❌ مبلغ خرید نامعتبر است!"
     
@@ -48,14 +39,11 @@ def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
     if not discount_info:
         return 0, total_price, "❌ کد تخفیف نامعتبر است!"
     
-    # استخراج اطلاعات
     discount_id, code, discount_type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount_info
     
-    # چک فعال بودن
     if not is_active:
         return 0, total_price, "❌ این کد تخفیف غیرفعال است!"
     
-    # چک تاریخ‌ها
     now = datetime.now()
     
     if start_date:
@@ -74,46 +62,36 @@ def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
         except ValueError:
             logger.error(f"Invalid end_date format: {end_date}")
     
-    # چک محدودیت استفاده
     if usage_limit and used_count >= usage_limit:
         return 0, total_price, "❌ این کد تخفیف به حداکثر تعداد استفاده رسیده است!"
     
-    # ✅ FIX: چک حداقل خرید با مقایسه امن
     if min_purchase > 0 and total_price < min_purchase:
         return 0, total_price, f"❌ حداقل خرید برای این کد {min_purchase:,.0f} تومان است!"
     
-    # محاسبه تخفیف
     discount_amount = 0
     
     if discount_type == 'percentage':
-        # ✅ FIX: چک Division by Zero
         if value <= 0 or value > 100:
             logger.error(f"Invalid percentage value: {value}")
             return 0, total_price, "❌ درصد تخفیف نامعتبر است!"
         
-        # محاسبه درصدی
         discount_amount = total_price * (value / 100)
         
-        # اعمال حداکثر تخفیف
         if max_discount and discount_amount > max_discount:
             discount_amount = max_discount
     
     else:  # fixed amount
-        # ✅ FIX: چک مبلغ ثابت
         if value <= 0:
             logger.error(f"Invalid fixed discount value: {value}")
             return 0, total_price, "❌ مبلغ تخفیف نامعتبر است!"
         
         discount_amount = value
         
-        # ✅ FIX: تخفیف نمی‌تونه بیشتر از کل باشه
         if discount_amount > total_price:
             discount_amount = total_price
     
-    # ✅ FIX: محاسبه نهایی با رند کردن
     final_price = round(total_price - discount_amount, 2)
     
-    # ✅ FIX: جلوگیری از منفی شدن قیمت
     if final_price < 0:
         final_price = 0
     
@@ -124,59 +102,75 @@ def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
 
 async def discount_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی مدیریت تخفیف‌ها"""
+    logger.info("📋 discount_menu called")
+    
     if update.effective_user.id != ADMIN_ID:
+        logger.warning(f"⛔ Unauthorized access attempt by {update.effective_user.id}")
         return
     
-    await update.message.reply_text(
-        "🎁 **مدیریت کدهای تخفیف**\n\n"
-        "از منوی زیر انتخاب کنید:",
-        parse_mode='Markdown',
-        reply_markup=discount_management_keyboard()
-    )
+    try:
+        await update.message.reply_text(
+            "🎁 **مدیریت کدهای تخفیف**\n\n"
+            "از منوی زیر انتخاب کنید:",
+            parse_mode='Markdown',
+            reply_markup=discount_management_keyboard()
+        )
+        logger.info("✅ discount_menu displayed successfully")
+    except Exception as e:
+        logger.error(f"❌ Error in discount_menu: {e}", exc_info=True)
 
 
 async def create_discount_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع ایجاد کد تخفیف"""
+    logger.info("🎫 create_discount_start called")
+    
     query = update.callback_query
     await query.answer()
     
     if update.effective_user.id != ADMIN_ID:
+        logger.warning(f"⛔ Unauthorized access attempt by {update.effective_user.id}")
         return ConversationHandler.END
     
-    await query.message.reply_text(
-        "📝 **ایجاد کد تخفیف جدید**\n\n"
-        "لطفاً کد تخفیف را وارد کنید:\n"
-        "مثال: SUMMER2024",
-        parse_mode='Markdown',
-        reply_markup=cancel_keyboard()
-    )
-    
-    return DISCOUNT_CODE
+    try:
+        await query.message.reply_text(
+            "📝 **ایجاد کد تخفیف جدید**\n\n"
+            "لطفاً کد تخفیف را وارد کنید:\n"
+            "مثال: SUMMER2024",
+            parse_mode='Markdown',
+            reply_markup=cancel_keyboard()
+        )
+        logger.info("✅ create_discount_start - waiting for discount code")
+        return DISCOUNT_CODE
+    except Exception as e:
+        logger.error(f"❌ Error in create_discount_start: {e}", exc_info=True)
+        return ConversationHandler.END
 
 
 async def discount_code_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت کد تخفیف - با اعتبارسنجی"""
+    """دریافت کد تخفیف"""
+    logger.info(f"📝 discount_code_received: {update.message.text}")
+    
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
     code = update.message.text
     
-    # 🔒 اعتبارسنجی کد تخفیف
     is_valid, error_msg, cleaned_code = Validators.validate_discount_code(code)
     
     if not is_valid:
+        logger.warning(f"❌ Invalid discount code: {code}")
         await update.message.reply_text(
             error_msg,
             reply_markup=cancel_keyboard()
         )
         return DISCOUNT_CODE
     
-    # بررسی تکراری نبودن
     db = context.bot_data['db']
     existing = db.get_discount(cleaned_code)
     
     if existing:
+        logger.warning(f"❌ Duplicate discount code: {cleaned_code}")
         await update.message.reply_text(
             "❌ این کد قبلاً استفاده شده است!\n"
             "لطفاً کد دیگری وارد کنید:",
@@ -186,42 +180,64 @@ async def discount_code_received(update: Update, context: ContextTypes.DEFAULT_T
     
     context.user_data['discount_code'] = cleaned_code
     
-    await update.message.reply_text(
-        "💯 نوع تخفیف را انتخاب کنید:",
-        reply_markup=discount_type_keyboard()
-    )
-    
-    return DISCOUNT_TYPE
+    try:
+        await update.message.reply_text(
+            "💯 نوع تخفیف را انتخاب کنید:",
+            reply_markup=discount_type_keyboard()
+        )
+        logger.info(f"✅ Discount code saved: {cleaned_code}, waiting for type selection")
+        return DISCOUNT_TYPE
+    except Exception as e:
+        logger.error(f"❌ Error sending discount_type_keyboard: {e}", exc_info=True)
+        return ConversationHandler.END
 
 
 async def discount_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """انتخاب نوع تخفیف"""
+    logger.info("💯 discount_type_selected called")
+    
     query = update.callback_query
-    await query.answer()
     
-    discount_type = query.data.split(":")[1]
-    context.user_data['discount_type'] = discount_type
-    
-    if discount_type == "percentage":
+    try:
+        await query.answer()
+        logger.info(f"📞 Callback data: {query.data}")
+        
+        discount_type = query.data.split(":")[1]
+        context.user_data['discount_type'] = discount_type
+        
+        logger.info(f"✅ Discount type selected: {discount_type}")
+        
+        if discount_type == "percentage":
+            await query.message.reply_text(
+                "💯 درصد تخفیف را وارد کنید:\n"
+                "مثال: 10 (برای 10 درصد)\n\n"
+                "⚠️ باید بین 1 تا 100 باشد",
+                reply_markup=cancel_keyboard()
+            )
+        else:
+            await query.message.reply_text(
+                "💰 مبلغ تخفیف را به تومان وارد کنید:\n"
+                "مثال: 50000\n\n"
+                "⚠️ حداقل 1000 تومان",
+                reply_markup=cancel_keyboard()
+            )
+        
+        logger.info("✅ Waiting for discount value")
+        return DISCOUNT_VALUE
+        
+    except Exception as e:
+        logger.error(f"❌ Error in discount_type_selected: {e}", exc_info=True)
         await query.message.reply_text(
-            "💯 درصد تخفیف را وارد کنید:\n"
-            "مثال: 10 (برای 10 درصد)\n\n"
-            "⚠️ باید بین 1 تا 100 باشد",
-            reply_markup=cancel_keyboard()
+            "❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
         )
-    else:
-        await query.message.reply_text(
-            "💰 مبلغ تخفیف را به تومان وارد کنید:\n"
-            "مثال: 50000\n\n"
-            "⚠️ حداقل 1000 تومان",
-            reply_markup=cancel_keyboard()
-        )
-    
-    return DISCOUNT_VALUE
+        return ConversationHandler.END
 
 
 async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت مقدار تخفیف - با اعتبارسنجی کامل"""
+    """دریافت مقدار تخفیف"""
+    logger.info(f"💰 discount_value_received: {update.message.text}")
+    
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
@@ -229,9 +245,7 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
     value_str = update.message.text
     discount_type = context.user_data['discount_type']
     
-    # 🔒 اعتبارسنجی مقدار
     if discount_type == "percentage":
-        # برای درصد
         is_valid, error_msg, value = Validators.validate_quantity(value_str, min_value=1, max_value=100)
         
         if not is_valid:
@@ -242,7 +256,6 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
             )
             return DISCOUNT_VALUE
         
-        # بررسی اضافی برای درصد
         is_valid_pct, error_pct = Validators.validate_percentage(value)
         if not is_valid_pct:
             await update.message.reply_text(
@@ -250,14 +263,14 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
                 reply_markup=cancel_keyboard()
             )
             return DISCOUNT_VALUE
-            
+    
     else:
-        # برای مبلغ ثابت
-        is_valid, error_msg, value = Validators.validate_price(value_str, min_value=1000)
+        is_valid, error_msg, value = Validators.validate_price(value_str)
         
-        if not is_valid:
+        if not is_valid or value < 1000:
             await update.message.reply_text(
-                error_msg,
+                "❌ مبلغ تخفیف باید حداقل 1000 تومان باشد!\n"
+                "لطفاً دوباره وارد کنید:",
                 reply_markup=cancel_keyboard()
             )
             return DISCOUNT_VALUE
@@ -265,8 +278,8 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['discount_value'] = value
     
     await update.message.reply_text(
-        "💳 حداقل مبلغ خرید را به تومان وارد کنید:\n"
-        "(برای بدون محدودیت عدد 0 وارد کنید)\n"
+        "💳 حداقل مبلغ خرید برای استفاده از این کد:\n"
+        "(برای نداشتن محدودیت عدد 0 وارد کنید)\n\n"
         "مثال: 100000",
         reply_markup=cancel_keyboard()
     )
@@ -275,42 +288,38 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def discount_min_purchase_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت حداقل خرید - با اعتبارسنجی"""
+    """دریافت حداقل خرید"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    min_purchase_str = update.message.text
-    
-    # 🔒 اعتبارسنجی
-    is_valid, error_msg, min_purchase = Validators.validate_price(min_purchase_str, min_value=0)
+    is_valid, error_msg, min_purchase = Validators.validate_price(update.message.text)
     
     if not is_valid:
         await update.message.reply_text(
-            error_msg,
+            "❌ لطفاً یک عدد صحیح وارد کنید!",
             reply_markup=cancel_keyboard()
         )
         return DISCOUNT_MIN_PURCHASE
     
-    context.user_data['discount_min_purchase'] = min_purchase
+    context.user_data['discount_min_purchase'] = min_purchase if min_purchase > 0 else 0
     
     if context.user_data['discount_type'] == "percentage":
         await update.message.reply_text(
-            "🔝 حداکثر مبلغ تخفیف را به تومان وارد کنید:\n"
-            "(برای بدون محدودیت عدد 0 وارد کنید)\n"
-            "مثال: 200000",
+            "🔝 حداکثر مبلغ تخفیف (تومان):\n"
+            "(برای نداشتن محدودیت عدد 0 وارد کنید)\n\n"
+            "مثال: 50000",
             reply_markup=cancel_keyboard()
         )
         return DISCOUNT_MAX
     else:
-        # تخفیف ثابت حداکثر ندارد
-        context.user_data['discount_max'] = None
         await update.message.reply_text(
-            "🔢 محدودیت تعداد استفاده را وارد کنید:\n"
-            "(برای نامحدود عدد 0 وارد کنید)\n"
+            "🔢 محدودیت تعداد استفاده:\n"
+            "(برای نامحدود عدد 0 وارد کنید)\n\n"
             "مثال: 100",
             reply_markup=cancel_keyboard()
         )
+        context.user_data['discount_max'] = None
         return DISCOUNT_LIMIT
 
 
@@ -320,34 +329,25 @@ async def discount_max_received(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
     
-    try:
-        max_discount = float(update.message.text.replace(',', ''))
-        
-        # ✅ Validation
-        if max_discount < 0:
-            await update.message.reply_text(
-                "❌ مبلغ نمی‌تواند منفی باشد!",
-                reply_markup=cancel_keyboard()
-            )
-            return DISCOUNT_MAX
-        
-        context.user_data['discount_max'] = max_discount if max_discount > 0 else None
-        
+    is_valid, error_msg, max_discount = Validators.validate_price(update.message.text)
+    
+    if not is_valid:
         await update.message.reply_text(
-            "🔢 محدودیت تعداد استفاده را وارد کنید:\n"
-            "(برای نامحدود عدد 0 وارد کنید)\n"
-            "مثال: 100",
-            reply_markup=cancel_keyboard()
-        )
-        
-        return DISCOUNT_LIMIT
-        
-    except ValueError:
-        await update.message.reply_text(
-            "❌ لطفاً یک عدد معتبر وارد کنید!",
+            "❌ لطفاً یک عدد صحیح وارد کنید!",
             reply_markup=cancel_keyboard()
         )
         return DISCOUNT_MAX
+    
+    context.user_data['discount_max'] = max_discount if max_discount > 0 else None
+    
+    await update.message.reply_text(
+        "🔢 محدودیت تعداد استفاده:\n"
+        "(برای نامحدود عدد 0 وارد کنید)\n\n"
+        "مثال: 100",
+        reply_markup=cancel_keyboard()
+    )
+    
+    return DISCOUNT_LIMIT
 
 
 async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,7 +359,6 @@ async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_
     try:
         usage_limit = int(update.message.text)
         
-        # ✅ Validation
         if usage_limit < 0:
             await update.message.reply_text(
                 "❌ تعداد نمی‌تواند منفی باشد!",
@@ -442,7 +441,6 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return DISCOUNT_END
     
-    # ذخیره در دیتابیس
     db = context.bot_data['db']
     
     try:
@@ -465,7 +463,6 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.clear()
         return ConversationHandler.END
     
-    # نمایش خلاصه
     summary = "✅ **کد تخفیف ایجاد شد!**\n\n"
     summary += f"🎫 کد: `{context.user_data['discount_code']}`\n"
     
@@ -494,7 +491,6 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=admin_main_keyboard()
     )
     
-    # پاک کردن داده‌های موقت
     context.user_data.clear()
     
     return ConversationHandler.END
@@ -502,6 +498,8 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def list_discounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش لیست تخفیف‌ها"""
+    logger.info("📋 list_discounts called")
+    
     query = update.callback_query
     await query.answer()
     
@@ -586,7 +584,6 @@ async def toggle_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.answer("✅ وضعیت تغییر کرد!")
     
-    # نمایش مجدد جزئیات
     context.user_data['temp_callback'] = f"view_discount:{discount_id}"
     await view_discount(update, context)
 

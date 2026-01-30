@@ -7,13 +7,21 @@ import json
 import threading
 import atexit
 from logger import log_database_operation, log_error
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from contextlib import contextmanager
 from config import DATABASE_NAME
 import logging
+import pytz
 
 logger = logging.getLogger(__name__)
+
+# Timezone تهران
+TEHRAN_TZ = pytz.timezone('Asia/Tehran')
+
+def get_tehran_now():
+    """دریافت زمان فعلی تهران"""
+    return datetime.now(TEHRAN_TZ)
 
 
 class DatabaseConnectionPool:
@@ -296,8 +304,7 @@ class Database:
     
     def _migrate_existing_data(self):
         """
-        ✅ NEW: اضافه کردن ستون per_user_limit به جدول discount_codes اگر وجود نداشته باشد
-        و migrate کردن سفارشات قدیمی
+        ✅ اضافه کردن ستون‌های جدید و migrate کردن سفارشات قدیمی
         """
         try:
             conn = self._get_conn()
@@ -323,6 +330,7 @@ class Database:
                 conn.commit()
                 
                 # ✅ FIX: فقط یکبار وقتی ستون اضافه میشه، migration رو اجرا کن
+                # و با 1 ساعت (نه 1 روز)
                 logger.info("🔄 Migration سفارشات قدیمی به 1 ساعت...")
                 cursor.execute("""
                     UPDATE orders 
@@ -601,12 +609,14 @@ class Database:
     def create_order(self, user_id: int, items: List[dict], total_price: float, 
                     discount_amount: float = 0, final_price: Optional[float] = None, 
                     discount_code: Optional[str] = None):
-        """ایجاد سفارش با تاریخ انقضا ۱ ساعته"""
+        """ایجاد سفارش با تاریخ انقضا ۱ ساعته (با timezone تهران)"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
-        expires_at = datetime.now() + timedelta(hours=1)  # ۱ ساعت
+        # ✅ FIX: استفاده از زمان تهران
+        now_tehran = get_tehran_now()
+        expires_at = now_tehran + timedelta(hours=1)  # ۱ ساعت
         
         with self.transaction() as cursor:
             cursor.execute("""
@@ -682,7 +692,7 @@ class Database:
             return False
     
     def is_order_expired(self, order_id: int) -> bool:
-        """بررسی منقضی بودن سفارش"""
+        """بررسی منقضی بودن سفارش (با timezone تهران)"""
         order = self.get_order(order_id)
         if not order:
             return True
@@ -694,15 +704,21 @@ class Database:
         if isinstance(expires_at, str):
             expires_at = datetime.fromisoformat(expires_at)
         
-        return datetime.now() > expires_at
+        # ✅ FIX: مقایسه با زمان تهران
+        # اگر expires_at بدون timezone هست، timezone تهران بهش اضافه می‌کنیم
+        if expires_at.tzinfo is None:
+            expires_at = TEHRAN_TZ.localize(expires_at)
+        
+        return get_tehran_now() > expires_at
     
     def cleanup_old_orders(self, days_old: int = 7) -> dict:
-        """پاکسازی سفارشات قدیمی"""
+        """پاکسازی سفارشات قدیمی (با timezone تهران)"""
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            cutoff_date = datetime.now() - timedelta(days=days_old)
+            # ✅ FIX: استفاده از زمان تهران
+            cutoff_date = get_tehran_now() - timedelta(days=days_old)
             
             cursor.execute("""
                 SELECT COUNT(*) FROM orders 
@@ -835,9 +851,10 @@ class Database:
     
     def save_temp_discount(self, user_id: int, discount_code: str, discount_amount: float):
         """
-        ذخیره کد تخفیف موقت برای کاربر
+        ذخیره کد تخفیف موقت برای کاربر (با timezone تهران)
         """
-        expires_at = datetime.now() + timedelta(hours=1)
+        # ✅ FIX: استفاده از زمان تهران
+        expires_at = get_tehran_now() + timedelta(hours=1)
         
         try:
             with self.transaction() as cursor:

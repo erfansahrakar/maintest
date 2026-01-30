@@ -321,15 +321,18 @@ class Database:
                 logger.info("🔄 اضافه کردن ستون expires_at...")
                 cursor.execute("ALTER TABLE orders ADD COLUMN expires_at TIMESTAMP")
                 conn.commit()
+                
+                # ✅ FIX: فقط یکبار وقتی ستون اضافه میشه، migration رو اجرا کن
+                logger.info("🔄 Migration سفارشات قدیمی به 1 ساعت...")
+                cursor.execute("""
+                    UPDATE orders 
+                    SET expires_at = datetime(created_at, '+1 hour')
+                    WHERE expires_at IS NULL
+                """)
+                conn.commit()
+                logger.info("✅ Migration سفارشات قدیمی انجام شد")
             
-            cursor.execute("""
-                UPDATE orders 
-                SET expires_at = datetime(created_at, '+1 hour')
-                WHERE expires_at IS NULL
-            """)
-            conn.commit()
-            
-            logger.info("✅ مهاجرت داده‌های قدیمی انجام شد")
+            logger.info("✅ بررسی migration‌ها تمام شد")
         except Exception as e:
             logger.error(f"❌ خطا در مهاجرت: {e}")
     

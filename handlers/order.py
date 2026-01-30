@@ -5,6 +5,7 @@
 import json
 import jdatetime
 import logging
+import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -19,6 +20,13 @@ from keyboards import (
 from states import OrderStatus
 
 logger = logging.getLogger(__name__)
+
+# Timezone تهران
+TEHRAN_TZ = pytz.timezone('Asia/Tehran')
+
+def get_tehran_now():
+    """دریافت زمان فعلی تهران"""
+    return datetime.now(TEHRAN_TZ)
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -79,7 +87,7 @@ def get_order_status_text(status):
 
 def is_order_expired(order):
     """
-    بررسی منقضی بودن سفارش
+    بررسی منقضی بودن سفارش (با timezone تهران)
     ✅ FIX: این تابع همه جا استفاده میشه
     """
     if not order:
@@ -95,7 +103,11 @@ def is_order_expired(order):
         except:
             return False
     
-    return datetime.now() > expires_at
+    # ✅ FIX: اگر expires_at بدون timezone هست، timezone تهران بهش اضافه می‌کنیم
+    if expires_at.tzinfo is None:
+        expires_at = TEHRAN_TZ.localize(expires_at)
+    
+    return get_tehran_now() > expires_at
 
 
 def create_order_action_keyboard(order_id, status, is_expired):

@@ -160,6 +160,11 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in view_user_orders: {update}")
+        return
+    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -262,6 +267,12 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
+    
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        await query.answer("❌ خطا در شناسایی کاربر!", show_alert=True)
+        logger.warning(f"⚠️ Update without user in handle_delete_order: {update}")
+        return
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
@@ -761,8 +772,19 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
+    # ✅ FIX: چک کردن effective_user برای جلوگیری از AttributeError
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user received: {update}")
+        return
+    
     user_id = update.effective_user.id
     db = context.bot_data['db']
+    
+    # ✅ FIX: چک کردن وجود photo
+    if not update.message or not update.message.photo:
+        if update.message:
+            await update.message.reply_text("❌ لطفاً یک عکس ارسال کنید.")
+        return
     
     orders = db.get_waiting_payment_orders()
     user_order = None

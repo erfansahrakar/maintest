@@ -1,6 +1,7 @@
 """
 هندلرهای مربوط به کاربران
 
+✅ Fixed: اضافه شدن چک برای effective_user
 """
 import json
 import logging
@@ -20,6 +21,9 @@ from keyboards import (
     view_cart_keyboard,
     cancel_keyboard
 )
+
+# ✅ Import helper برای چک کردن effective_user (اختیاری - فعلاً چک‌ها inline هستند)
+# from user_validator import require_user, get_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,11 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
     Returns:
         tuple: (success: bool, new_quantity: int, message: str)
     """
+    # ✅ چک کردن وجود effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ _update_cart_item_quantity فراخوانی شد اما effective_user وجود ندارد")
+        return False, 0, "❌ خطا در شناسایی کاربر!"
+    
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -113,6 +122,11 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
     Returns:
         bool: آیا سبد خالی است؟
     """
+    # ✅ چک کردن وجود effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ refresh_cart_display فراخوانی شد اما effective_user وجود ندارد")
+        return True
+    
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']

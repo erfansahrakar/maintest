@@ -1070,6 +1070,28 @@ async def mark_order_shipped(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     
     logger.info(f"✅ سفارش {order_id} به عنوان ارسال شده ثبت شد")
+
+
+async def admin_delete_not_shipped_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حذف سفارش ارسال نشده توسط ادمین"""
+    query = update.callback_query
+    
+    order_id = int(query.data.split(":")[1])
+    db = context.bot_data['db']
+    
+    order = db.get_order(order_id)
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    success = db.delete_order(order_id)
+    
+    if success:
+        await query.answer("✅ سفارش حذف شد", show_alert=True)
+        await query.edit_message_text(f"🗑 سفارش #{order_id} حذف شد.")
+        logger.info(f"🗑 سفارش {order_id} توسط ادمین حذف شد")
+    else:
+        await query.answer("❌ خطا در حذف سفارش!", show_alert=True)
     query = update.callback_query
     await query.answer("❌ رسید رد شد")
     

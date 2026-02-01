@@ -34,6 +34,12 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
     
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ discount_code_entered called without effective_user")
+        await update.message.reply_text("❌ خطا در شناسایی کاربر", reply_markup=user_main_keyboard())
+        return ConversationHandler.END
+    
     user_id = update.effective_user.id
     discount_code = update.message.text.strip().upper()
     db = context.bot_data['db']

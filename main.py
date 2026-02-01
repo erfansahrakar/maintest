@@ -52,11 +52,6 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context):
     """هندلر دستور /start"""
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning(f"⚠️ Update without user in start: {update}")
-        return
-    
     user_id = update.effective_user.id
     
     from handlers.admin import admin_start
@@ -70,16 +65,12 @@ async def start(update: Update, context):
 
 async def handle_text_messages(update: Update, context):
     """مدیریت پیام‌های متنی"""
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user or not update.message:
-        logger.warning(f"⚠️ Update without user/message in handle_text_messages: {update}")
-        return
-    
     text = update.message.text
     user_id = update.effective_user.id
     
     from handlers.admin import add_product_start, list_products, show_statistics
     from handlers.order import view_pending_orders, view_payment_receipts
+    from handlers.order import view_not_shipped_orders, view_shipped_orders
     from handlers.user import view_cart, view_my_address, contact_us
     from handlers.discount import discount_menu
     from handlers.broadcast import broadcast_start
@@ -95,8 +86,21 @@ async def handle_text_messages(update: Update, context):
             return await add_product_start(update, context)
         elif text == "📦 لیست محصولات":
             return await list_products(update, context)
-        elif text == "📋 سفارشات جدید":
+        elif text == "📦 سفارشات":
+            from keyboards import admin_orders_submenu_keyboard
+            await update.message.reply_text(
+                "📦 سفارشات — یکی رو انتخاب کنید:",
+                reply_markup=admin_orders_submenu_keyboard()
+            )
+            return
+        elif text == "📋 سفارشات در انتظار تایید":
             return await view_pending_orders(update, context)
+        elif text == "📦 سفارشات ارسال نشده":
+            return await view_not_shipped_orders(update, context)
+        elif text == "✅ سفارشات ارسال شده":
+            return await view_shipped_orders(update, context)
+        elif text == "🔙 بازگشت":
+            return await admin_start(update, context)
         elif text == "💳 تایید پرداخت‌ها":
             return await view_payment_receipts(update, context)
         elif text == "🎁 مدیریت تخفیف‌ها":
@@ -124,38 +128,18 @@ async def handle_text_messages(update: Update, context):
     elif text == "📞 تماس با ما":
         await contact_us(update, context)
     elif text == "ℹ️ راهنما":
-        await update.message.reply_text(
-            "📚 راهنمای استفاده:\n\n"
-            "1️⃣ از کانال ما محصولات را مشاهده کنید: @manto_omdeh_erfan\n"
-            "2️⃣ روی دکمه پک مورد نظر کلیک کنید\n"
-            "3️⃣ هر بار کلیک = 1 پک به سبد اضافه می‌شود\n"
-            "4️⃣ بعد تمام شدن، روی 'سبد خرید' کلیک کنید\n"
-            "5️⃣ اگر کد تخفیف دارید وارد کنید\n"
-            "6️⃣ سفارش خود را نهایی کنید\n"
-            "7️⃣ بعد از تایید، مبلغ را واریز کنید\n"
-            "8️⃣ رسید را ارسال کنید\n"
-            "9️⃣ سفارش شما ارسال می‌شود! 🎉"
-        )
+        from config import get_help_text
+        await update.message.reply_text(get_help_text())
 
 
 async def handle_photos(update: Update, context):
     """مدیریت عکس‌ها (رسیدها)"""
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning(f"⚠️ Update without user in handle_photos: {update}")
-        return
-    
     from handlers.order import handle_receipt
     await handle_receipt(update, context)
 
 
 async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🆕 پاکسازی دستی توسط ادمین"""
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning(f"⚠️ Update without user in manual_cleanup: {update}")
-        return
-    
     user_id = update.effective_user.id
     
     if user_id != ADMIN_ID:
@@ -686,7 +670,9 @@ def main():
     application.add_handler(CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:"))
     application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
     
-    # 🆕 Handler های جدید
+    # 🆕 Handler ارسال شدن سفارش
+    from handlers.order import mark_order_shipped
+    application.add_handler(CallbackQueryHandler(mark_order_shipped, pattern="^mark_shipped:"))
     application.add_handler(CallbackQueryHandler(handle_continue_payment, pattern="^continue_payment:"))
     application.add_handler(CallbackQueryHandler(handle_delete_order, pattern="^delete_order:"))
     

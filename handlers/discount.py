@@ -122,6 +122,11 @@ async def discount_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی مدیریت تخفیف‌ها"""
     logger.info("📋 discount_menu called")
     
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ discount_menu called without effective_user")
+        return
+    
     if update.effective_user.id != ADMIN_ID:
         logger.warning(f"⛔ Unauthorized access attempt by {update.effective_user.id}")
         return
@@ -144,6 +149,11 @@ async def create_discount_start(update: Update, context: ContextTypes.DEFAULT_TY
     
     query = update.callback_query
     await query.answer()
+    
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ create_discount_start called without effective_user")
+        return ConversationHandler.END
     
     if update.effective_user.id != ADMIN_ID:
         logger.warning(f"⛔ Unauthorized access attempt by {update.effective_user.id}")

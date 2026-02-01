@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context):
     """هندلر دستور /start"""
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ start called without effective_user")
+        return
+    
     user_id = update.effective_user.id
     
     from handlers.admin import admin_start
@@ -65,6 +70,11 @@ async def start(update: Update, context):
 
 async def handle_text_messages(update: Update, context):
     """مدیریت پیام‌های متنی"""
+    # ✅ چک کردن effective_user
+    if not update.effective_user or not update.message:
+        logger.warning("⚠️ handle_text_messages called without effective_user or message")
+        return
+    
     text = update.message.text
     user_id = update.effective_user.id
     
@@ -140,6 +150,11 @@ async def handle_photos(update: Update, context):
 
 async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🆕 پاکسازی دستی توسط ادمین"""
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ manual_cleanup called without effective_user")
+        return
+    
     user_id = update.effective_user.id
     
     if user_id != ADMIN_ID:

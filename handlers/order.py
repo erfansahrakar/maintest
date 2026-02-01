@@ -890,37 +890,6 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ پرداخت سفارش {order_id} تایید شد")
 
 
-async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """رد پرداخت توسط ادمین"""
-    query = update.callback_query
-    await query.answer("❌ رسید رد شد")
-    
-    order_id = int(query.data.split(":")[1])
-    db = context.bot_data['db']
-    
-    db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
-    
-    order = db.get_order(order_id)
-    user_id = order[1]
-    final_price = order[5]
-    
-    message = MESSAGES["payment_rejected"] + "\n\n"
-    message += MESSAGES["order_confirmed"].format(
-        amount=f"{final_price:,.0f}",
-        card=CARD_NUMBER,
-        iban=IBAN_NUMBER,
-        holder=CARD_HOLDER
-    )
-    
-    await context.bot.send_message(user_id, message)
-    
-    await query.edit_message_caption(
-        caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
-    )
-    
-    logger.info(f"❌ رسید سفارش {order_id} رد شد")
-
-
 async def view_not_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات ارسال نشده (confirmed یا payment_confirmed، بدون shipped)"""
     db = context.bot_data['db']
@@ -1092,6 +1061,10 @@ async def admin_delete_not_shipped_order(update: Update, context: ContextTypes.D
         logger.info(f"🗑 سفارش {order_id} توسط ادمین حذف شد")
     else:
         await query.answer("❌ خطا در حذف سفارش!", show_alert=True)
+
+
+async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """رد پرداخت توسط ادمین"""
     query = update.callback_query
     await query.answer("❌ رسید رد شد")
     

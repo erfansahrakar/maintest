@@ -160,11 +160,6 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning(f"⚠️ Update without user in view_user_orders: {update}")
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -267,12 +262,6 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
-    
-    # ✅ FIX: چک کردن effective_user
-    if not update.effective_user:
-        await query.answer("❌ خطا در شناسایی کاربر!", show_alert=True)
-        logger.warning(f"⚠️ Update without user in handle_delete_order: {update}")
-        return
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
@@ -772,19 +761,8 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
-    # ✅ FIX: چک کردن effective_user برای جلوگیری از AttributeError
-    if not update.effective_user:
-        logger.warning(f"⚠️ Update without user received: {update}")
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
-    
-    # ✅ FIX: چک کردن وجود photo
-    if not update.message or not update.message.photo:
-        if update.message:
-            await update.message.reply_text("❌ لطفاً یک عکس ارسال کنید.")
-        return
     
     orders = db.get_waiting_payment_orders()
     user_order = None
@@ -912,8 +890,155 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ پرداخت سفارش {order_id} تایید شد")
 
 
-async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """رد پرداخت توسط ادمین"""
+async def view_not_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش سفارشات ارسال نشده (confirmed یا payment_confirmed، بدون shipped)"""
+    db = context.bot_data['db']
+    
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM orders 
+        WHERE status IN ('payment_confirmed', 'confirmed') 
+        AND (shipping_method IS NULL OR shipping_method != 'shipped')
+        ORDER BY created_at DESC
+    """)
+    orders = cursor.fetchall()
+    
+    if not orders:
+        await update.message.reply_text("📭 سفارشی ارسال نشده وجود نداشت.")
+        return
+    
+    await update.message.reply_text(f"📦 سفارشات ارسال نشده: {len(orders)} سفارش")
+    
+    for order in orders:
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+        address = user[6] if len(user) > 6 and user[6] else "ندارد"
+        
+        text = f"📋 سفارش #{order_id}\n\n"
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"📝 نام: {full_name}\n"
+        text += f"📞 موبایل: {phone}\n"
+        text += f"📍 آدرس: {address}\n\n"
+        
+        text += "🛍 محصولات:\n"
+        for item in items:
+            text += f"• {item['product']} - {item['pack']}\n"
+            text += f"  تعداد: {item['quantity']} عدد\n"
+        
+        text += f"\n💰 جمع کل: {total_price:,.0f} تومان\n"
+        if discount_amount > 0:
+            text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+            text += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n"
+        
+        if shipping_method:
+            text += f"\n📦 نحوه ارسال: {shipping_method}\n"
+        
+        text += f"\n📅 تاریخ: {format_jalali_datetime(created_at)}"
+        
+        from keyboards import order_shipped_keyboard
+        await update.message.reply_text(
+            text,
+            reply_markup=order_shipped_keyboard(order_id)
+        )
+
+
+async def view_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش سفارشات ارسال شده"""
+    db = context.bot_data['db']
+    
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM orders 
+        WHERE shipping_method = 'shipped'
+        ORDER BY created_at DESC
+    """)
+    orders = cursor.fetchall()
+    
+    if not orders:
+        await update.message.reply_text("📭 سفارشی ارسال شده وجود نداشت.")
+        return
+    
+    await update.message.reply_text(f"✅ سفارشات ارسال شده: {len(orders)} سفارش")
+    
+    for order in orders:
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method_raw, created_at, expires_at = order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+        address = user[6] if len(user) > 6 and user[6] else "ندارد"
+        
+        text = f"✅ سفارش #{order_id} — ارسال شده\n\n"
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"📝 نام: {full_name}\n"
+        text += f"📞 موبایل: {phone}\n"
+        text += f"📍 آدرس: {address}\n\n"
+        
+        text += "🛍 محصولات:\n"
+        for item in items:
+            text += f"• {item['product']} - {item['pack']}\n"
+            text += f"  تعداد: {item['quantity']} عدد\n"
+        
+        text += f"\n💰 جمع کل: {total_price:,.0f} تومان\n"
+        if discount_amount > 0:
+            text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+            text += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n"
+        
+        # نحوه ارسال اصلی رو ذخیره کردیم توی receipt_photo با فرمت "shipped|نحوه_ارسال"
+        original_shipping = None
+        if receipt and receipt.startswith("shipped|"):
+            original_shipping = receipt.split("|", 1)[1]
+        
+        if original_shipping:
+            text += f"\n📦 نحوه ارسال: {original_shipping}\n"
+        
+        text += f"\n📅 تاریخ: {format_jalali_datetime(created_at)}"
+        
+        await update.message.reply_text(text)
+
+
+async def mark_order_shipped(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تایید ارسال سفارش توسط ادمین"""
+    query = update.callback_query
+    
+    order_id = int(query.data.split(":")[1])
+    db = context.bot_data['db']
+    
+    order = db.get_order(order_id)
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    # نحوه ارسال فعلی رو قبل از تغییر ذخیره کن
+    current_shipping = order[9] if order[9] else "نامشخص"
+    
+    # shipping_method رو به 'shipped' تغییر بده
+    # نحوه ارسال اصلی رو توی receipt_photo ذخیره کن با فرمت "shipped|نحوه_ارسال"
+    with db.transaction() as cursor:
+        cursor.execute(
+            "UPDATE orders SET shipping_method = 'shipped', receipt_photo = ? WHERE id = ?",
+            (f"shipped|{current_shipping}", order_id)
+        )
+    
+    await query.answer("✅ سفارش به عنوان ارسال شده ثبت شد!", show_alert=True)
+    
+    # متن پیام رو بدون دکمه بذاریم
+    await query.edit_message_text(
+        query.message.text + f"\n\n✅ ارسال شد"
+    )
+    
+    logger.info(f"✅ سفارش {order_id} به عنوان ارسال شده ثبت شد")
     query = update.callback_query
     await query.answer("❌ رسید رد شد")
     

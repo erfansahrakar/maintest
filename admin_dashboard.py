@@ -99,11 +99,19 @@ async def admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
-            text,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            if "Message is not modified" in str(e):
+                # متن و keyboard تغییری نکرده - فقط answer بدیم
+                await update.callback_query.answer("✅ داشبورد به‌روز است", show_alert=False)
+            else:
+                # خطای دیگه‌ای بود
+                raise
     else:
         await update.message.reply_text(
             text,
@@ -151,11 +159,17 @@ async def show_full_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]]
     
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,11 +240,17 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]
     ]
     
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def show_health_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -249,11 +269,17 @@ async def show_health_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]]
     
-    await query.edit_message_text(
-        report,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            report,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def show_cache_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -292,11 +318,17 @@ async def show_cache_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]
     ]
     
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def show_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -339,11 +371,17 @@ async def show_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]]
     
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def show_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -398,11 +436,17 @@ async def show_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]
     ]
     
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
 
 
 async def cache_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):

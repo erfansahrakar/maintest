@@ -180,7 +180,8 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     db = context.bot_data['db']
     
     # آمار کاربران
-    cursor = db.cursor
+    conn = db._get_conn()
+    cursor = conn.cursor()
     
     # کل کاربران
     cursor.execute("SELECT COUNT(*) FROM users")
@@ -208,29 +209,27 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     """)
     recent_users = cursor.fetchall()
     
-    text = "👥 **مدیریت کاربران**\n"
-    text += "═" * 30 + "\n\n"
+    text = "👥 مدیریت کاربران\n"
+    text += "━━━━━━━━━━━━━━━━\n\n"
     
-    text += f"**📊 آمار:**\n"
+    text += "📊 آمار:\n"
     text += f"├ کل: {total}\n"
     text += f"├ فعال: {active}\n"
     text += f"├ غیرفعال: {total - active}\n"
     text += f"└ امروز: {today}\n\n"
     
-    text += "**🆕 آخرین کاربران:**\n"
+    text += "🆕 آخرین کاربران:\n"
     for user in recent_users:
         user_id, username, first_name, created_at = user
         
-        # ✅ FIX: Escape کردن first_name و username
-        safe_first_name = escape_markdown(first_name) if first_name else "نامشخص"
+        first_name_str = first_name if first_name else "نامشخص"
         
         if username:
-            # @ رو escape نکنیم چون باید به عنوان username باقی بمونه
-            safe_username = f"@{escape_markdown(username)}"
+            username_str = f"@{username}"
         else:
-            safe_username = "بدون username"
+            username_str = "بدون username"
         
-        text += f"├ {safe_first_name} ({safe_username})\n"
+        text += f"├ {first_name_str} ({username_str})\n"
     
     keyboard = [
         [
@@ -244,7 +243,6 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         await query.edit_message_text(
             text,
-            parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:

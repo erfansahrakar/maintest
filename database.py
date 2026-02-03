@@ -1227,6 +1227,87 @@ class Database:
             logger.error(f"خطا در کسر اعتبار موقت {user_id}: {e}")
             return False
     
+    def deduct_wallet(self, user_id: int, amount: float, cursor=None, description: str = "استفاده از اعتبار در سفارش", order_id: int = None) -> bool:
+        """
+        کسر هوشمند اعتبار - ابتدا از اعتبار موقت، سپس دائمی
+        cursor: اگر داده بشه از transaction موجود استفاده می‌کنه
+        """
+        try:
+            # اگر cursor نداده شده، خودمون transaction باز می‌کنیم
+            if cursor is None:
+                with self.transaction() as cursor:
+                    return self._deduct_wallet_internal(user_id, amount, cursor, description, order_id)
+            else:
+                # از transaction موجود استفاده می‌کنیم
+                return self._deduct_wallet_internal(user_id, amount, cursor, description, order_id)
+                
+        except Exception as e:
+            logger.error(f"خطا در کسر اعتبار کاربر {user_id}: {e}")
+            return False
+    
+    def _deduct_wallet_internal(self, user_id: int, amount: float, cursor, description: str, order_id: int) -> bool:
+        """منطق داخلی کسر اعتبار"""
+        remaining = amount
+        
+        # 1. ابتدا از اعتبارهای موقت فعال کم کن
+        cursor.execute("""
+            SELECT id, balance, expires_at 
+            FROM wallet_temp 
+            WHERE user_id = ? AND balance > 0 AND datetime(expires_at) > datetime('now')
+            ORDER BY expires_at ASC
+        """, (user_id,))
+        temp_wallets = cursor.fetchall()
+        
+        for wallet_id, balance, expires_at in temp_wallets:
+            if remaining <= 0:
+                break
+            
+            deduct_from_this = min(remaining, balance)
+            new_balance = balance - deduct_from_this
+            
+            cursor.execute("""
+                UPDATE wallet_temp 
+                SET balance = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (new_balance, wallet_id))
+            
+            # ثبت تراکنش
+            cursor.execute("""
+                INSERT INTO wallet_transactions 
+                (user_id, amount, transaction_type, wallet_type, description, order_id)
+                VALUES (?, ?, 'debit', 'temp', ?, ?)
+            """, (user_id, -deduct_from_this, f"{description} (موقت)", order_id))
+            
+            remaining -= deduct_from_this
+        
+        # 2. اگر باقی مونده، از اعتبار دائمی کم کن
+        if remaining > 0:
+            cursor.execute("SELECT balance FROM wallet_permanent WHERE user_id = ?", (user_id,))
+            perm_wallet = cursor.fetchone()
+            
+            if not perm_wallet or perm_wallet[0] < remaining:
+                logger.error(f"اعتبار کافی نیست - کاربر {user_id}, نیاز: {remaining}")
+                return False
+            
+            new_perm_balance = perm_wallet[0] - remaining
+            
+            cursor.execute("""
+                UPDATE wallet_permanent 
+                SET balance = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+            """, (new_perm_balance, user_id))
+            
+            # ثبت تراکنش
+            cursor.execute("""
+                INSERT INTO wallet_transactions 
+                (user_id, amount, transaction_type, wallet_type, description, order_id)
+                VALUES (?, ?, 'debit', 'permanent', ?, ?)
+            """, (user_id, -remaining, f"{description} (دائمی)", order_id))
+        
+        self._invalidate_cache(f"wallet:{user_id}")
+        logger.info(f"✅ {amount:,.0f} تومان از اعتبار کاربر {user_id} کسر شد")
+        return True
+    
     def get_wallet_transactions(self, user_id: int, limit: int = 10) -> list:
         """دریافت تراکنش‌های اعتبار کاربر با نوع wallet"""
         try:

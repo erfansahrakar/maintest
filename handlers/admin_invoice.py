@@ -132,7 +132,8 @@ async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT
         context.user_data['invoice_target_user_id'] = user_id
         
         # نمایش اطلاعات کاربر
-        _, username, first_name, full_name, phone, _, address, shop_name, _ = user
+        # users table columns: user_id, username, first_name, full_name, phone, landline_phone, address, shop_name, created_at
+        user_id_db, username, first_name, full_name, phone, landline, address, shop_name, created_at = user
         
         text = f"✅ **کاربر پیدا شد**\n\n"
         text += f"👤 نام: {full_name or first_name or 'نامشخص'}\n"

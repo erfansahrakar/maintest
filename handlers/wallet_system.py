@@ -37,7 +37,7 @@ def get_wallet_keyboard():
         [InlineKeyboardButton("💰 مشاهده موجودی", callback_data="wallet:view")],
         [InlineKeyboardButton("📋 تاریخچه تراکنش‌ها", callback_data="wallet:history")],
         [InlineKeyboardButton("🎁 اعتبار هدیه من", callback_data="wallet:gifts")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_main")]
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="wallet:back")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -62,6 +62,10 @@ async def view_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         user_id = query.from_user.id
         message_func = query.message.reply_text
+        
+        # چک کردن اگر از سبد خرید اومده
+        if "cart" in query.data:
+            context.user_data['from_cart'] = True
     else:
         user_id = update.effective_user.id
         message_func = update.message.reply_text
@@ -650,3 +654,51 @@ async def admin_wallet_report(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def wallet_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت بازگشت از wallet به منوی قبلی"""
+    query = update.callback_query
+    await query.answer()
+    
+    # بررسی اینکه از کجا اومده (سبد خرید یا منوی اصلی)
+    message_text = query.message.text if query.message else ""
+    
+    if "سبد خرید" in message_text or context.user_data.get('from_cart'):
+        # بازگشت به سبد خرید
+        user_id = update.effective_user.id
+        db = context.bot_data['db']
+        cart = db.get_cart(user_id)
+        
+        if not cart:
+            await query.edit_message_text("🛒 سبد خرید شما خالی است!")
+            context.user_data.pop('from_cart', None)
+            return
+        
+        text = "🛒 سبد خرید شما:\n\n"
+        total_price = 0
+        
+        for item in cart:
+            cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+            
+            unit_price = pack_price / pack_qty
+            item_total = unit_price * item_qty
+            total_price += item_total
+            
+            text += f"🏷 {product_name}\n"
+            text += f"📦 {pack_name} ({item_qty} عدد)\n"
+            text += f"💰 {item_total:,.0f} تومان\n\n"
+        
+        text += f"💳 جمع کل: {total_price:,.0f} تومان"
+        
+        from keyboards import cart_keyboard
+        await query.edit_message_text(
+            text,
+            reply_markup=cart_keyboard(cart)
+        )
+        context.user_data.pop('from_cart', None)
+    else:
+        # بازگشت به منوی اصلی کاربر
+        from keyboards import user_main_keyboard
+        await query.message.delete()
+

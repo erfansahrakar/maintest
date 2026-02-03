@@ -790,16 +790,21 @@ def main():
     # 🆕 CallbackQuery handlers برای سیستم Wallet V2
     from handlers.wallet_system import (
         view_wallet, view_wallet_history, view_wallet_gifts, use_wallet_in_order,
-        admin_wallet_menu, admin_wallet_report, admin_wallet_cleanup
+        admin_wallet_menu, admin_wallet_report, admin_wallet_cleanup, wallet_back_handler
     )
     
-    application.add_handler(CallbackQueryHandler(view_wallet, pattern="^wallet:view$"))
+    application.add_handler(CallbackQueryHandler(view_wallet, pattern="^wallet:view"))
     application.add_handler(CallbackQueryHandler(view_wallet_history, pattern="^wallet:history$"))
     application.add_handler(CallbackQueryHandler(view_wallet_gifts, pattern="^wallet:gifts$"))
     application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
+    application.add_handler(CallbackQueryHandler(wallet_back_handler, pattern="^wallet:back$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_menu, pattern="^wallet_admin:menu$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_report, pattern="^wallet_admin:report$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_cleanup, pattern="^wallet_admin:cleanup$"))
+    
+    # 🆕 User management handlers
+    from handlers.user_management import view_users_list, handle_users_pagination
+    application.add_handler(CallbackQueryHandler(handle_users_pagination, pattern="^users_page:"))
     
     # 🆕 CallbackQuery handlers برای سیستم فاکتورزنی
     from handlers.admin_invoice import (

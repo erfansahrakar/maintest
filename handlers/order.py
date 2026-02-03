@@ -376,7 +376,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     for order in orders:
-        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+        id_col, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -931,7 +931,7 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     for order in query_result:
-        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at, expires_at = order
+        id_col, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -1052,7 +1052,7 @@ async def view_not_shipped_orders(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(f"📦 سفارشات ارسال نشده: {len(orders)} سفارش")
     
     for order in orders:
-        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+        id_col, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -1110,7 +1110,7 @@ async def view_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"✅ سفارشات ارسال شده: {len(orders)} سفارش")
     
     for order in orders:
-        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method_raw, created_at, expires_at = order
+        id_col, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method_raw, created_at, expires_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         

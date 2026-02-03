@@ -1365,41 +1365,6 @@ class Database:
             logger.error(f"خطا در دریافت آمار اعتبار: {e}")
             return {}
     
-        """افزودن اعتبار به کیف پول کاربر"""
-        try:
-            with self.transaction() as cursor:
-                # چک وجود رکورد wallet
-                cursor.execute("SELECT id, balance FROM wallet WHERE user_id = ?", (user_id,))
-                wallet = cursor.fetchone()
-                
-                if wallet:
-                    # آپدیت موجودی
-                    new_balance = wallet[1] + amount
-                    cursor.execute("""
-                        UPDATE wallet 
-                        SET balance = ?, 
-                            expires_at = COALESCE(?, expires_at),
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE user_id = ?
-                    """, (new_balance, expires_at, user_id))
-                else:
-                    # ایجاد رکورد جدید
-                    cursor.execute("""
-                        INSERT INTO wallet (user_id, balance, expires_at)
-                        VALUES (?, ?, ?)
-                    """, (user_id, amount, expires_at))
-                
-                # ثبت تراکنش
-                cursor.execute("""
-                    INSERT INTO wallet_transactions 
-                    (user_id, amount, transaction_type, description, admin_id)
-                    VALUES (?, ?, 'credit', ?, ?)
-                """, (user_id, amount, description, admin_id))
-                
-                log_database_operation("WALLET", "add_balance", user_id)
-                self._invalidate_cache(f"wallet:{user_id}")
-                
-    
     @property
     def cursor(self):
         """برای backward compatibility"""

@@ -1081,14 +1081,14 @@ async def show_final_invoice(update, context, order_id):
         await query.message.reply_text(
             invoice_text,
             parse_mode='HTML',
-            reply_markup=final_confirmation_keyboard()
+            reply_markup=final_confirmation_keyboard(order_id)
         )
     else:
         await context.bot.send_message(
             user_id,
             invoice_text,
             parse_mode='HTML',
-            reply_markup=final_confirmation_keyboard()
+            reply_markup=final_confirmation_keyboard(order_id)
         )
 
 

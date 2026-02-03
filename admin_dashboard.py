@@ -234,9 +234,10 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     
     keyboard = [
         [
-            InlineKeyboardButton("🔍 جستجو", callback_data="dash:search_user"),
-            InlineKeyboardButton("📊 گزارش", callback_data="dash:user_report")
+            InlineKeyboardButton("📋 لیست کامل", callback_data="dash:users_list"),
+            InlineKeyboardButton("🔍 جستجو", callback_data="dash:search_user")
         ],
+        [InlineKeyboardButton("📊 گزارش", callback_data="dash:user_report")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]
     ]
     
@@ -493,6 +494,9 @@ async def handle_dashboard_callback(update: Update, context: ContextTypes.DEFAUL
         await show_full_stats(update, context)
     elif data == "dash:users":
         await show_users_management(update, context)
+    elif data == "dash:users_list":
+        from handlers.user_management import view_users_list
+        await view_users_list(update, context, page=0)
     elif data == "dash:health":
         await show_health_status(update, context)
     elif data == "dash:cache":

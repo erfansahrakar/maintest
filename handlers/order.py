@@ -167,14 +167,22 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     orders = db.get_user_orders(user_id)
     
+    # تشخیص نوع update (message یا callback_query)
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        message_func = query.message.reply_text
+    else:
+        message_func = update.message.reply_text
+    
     if not orders:
-        await update.message.reply_text(
+        await message_func(
             "📭 شما هنوز سفارشی ثبت نکرده‌اید.",
             reply_markup=user_main_keyboard()
         )
         return
     
-    await update.message.reply_text(f"📋 شما {len(orders)} سفارش دارید:")
+    await message_func(f"📋 شما {len(orders)} سفارش دارید:")
     
     for order in orders:
         order_id, user_id_val, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
@@ -218,7 +226,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = create_order_action_keyboard(order_id, actual_status, expired)
         
-        await update.message.reply_text(text, reply_markup=keyboard)
+        await message_func(text, reply_markup=keyboard)
 
 
 async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):

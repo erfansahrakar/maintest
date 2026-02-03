@@ -318,7 +318,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
         logger.error(f"❌ سفارش {order_id} یافت نشد برای ارسال به ادمین")
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    db_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
@@ -328,7 +328,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
     address = user[6] if len(user) > 6 and user[6] else "ندارد"
     
-    text = f"🆕 سفارش جدید #{order_id_val}\n\n"
+    text = f"🆕 سفارش جدید #{db_id}\n\n"
     text += f"👤 کاربر: {first_name} (@{username})\n"
     text += f"📝 نام: {full_name}\n"
     text += f"📞 تلفن: {phone}\n"
@@ -359,11 +359,11 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
         await context.bot.send_message(
             ADMIN_ID,
             text,
-            reply_markup=order_confirmation_keyboard(order_id_val)
+            reply_markup=order_confirmation_keyboard(db_id)
         )
-        logger.info(f"✅ سفارش {order_id_val} به ادمین ارسال شد")
+        logger.info(f"✅ سفارش {db_id} به ادمین ارسال شد")
     except Exception as e:
-        logger.error(f"❌ خطا در ارسال سفارش {order_id_val} به ادمین: {e}")
+        logger.error(f"❌ خطا در ارسال سفارش {db_id} به ادمین: {e}")
 
 
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -527,7 +527,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    db_order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
     text = "🗑 **حذف آیتم از سفارش**\n\n"
@@ -581,7 +581,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         logger.info(f"⚠️ تلاش برای حذف آیتم از سفارش منقضی {order_id}")
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    db_order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
     # چک آیتم آخر
@@ -742,7 +742,7 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    db_order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
@@ -808,7 +808,7 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
     
     user_id = order[1]
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    db_order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
     message = "✅ **سفارش شما با تغییرات تایید شد!**\n"

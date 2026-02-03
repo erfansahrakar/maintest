@@ -660,16 +660,30 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # 🆕 ConversationHandler های سیستم Wallet
+    # 🆕 ConversationHandler های سیستم Wallet V2
     from handlers.wallet_system import (
-        admin_charge_wallet_start, admin_charge_wallet_user_received, admin_charge_wallet_amount_received
+        admin_charge_permanent_start, admin_charge_wallet_user_received, 
+        admin_charge_permanent_amount_received,
+        admin_gift_temp_start, admin_gift_temp_amount_received, admin_gift_temp_expiry_received
     )
     
-    wallet_charge_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_charge_wallet_start, pattern="^wallet_admin:charge$")],
+    # ConversationHandler شارژ دائمی
+    wallet_charge_permanent_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_charge_permanent_start, pattern="^wallet_admin:charge_permanent$")],
         states={
             WALLET_CHARGE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_user_received)],
-            WALLET_CHARGE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_amount_received)],
+            WALLET_CHARGE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_permanent_amount_received)],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
+    )
+    
+    # ConversationHandler هدیه موقت
+    wallet_gift_temp_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_gift_temp_start, pattern="^wallet_admin:gift_temp$")],
+        states={
+            WALLET_GIFT_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_user_received)],
+            WALLET_GIFT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_gift_temp_amount_received)],
+            WALLET_GIFT_EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_gift_temp_expiry_received)],
         },
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
@@ -709,8 +723,9 @@ def main():
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
     
-    # 🆕 ConversationHandler های جدید
-    application.add_handler(wallet_charge_conv)
+    # 🆕 ConversationHandler های جدید V2
+    application.add_handler(wallet_charge_permanent_conv)
+    application.add_handler(wallet_gift_temp_conv)
     application.add_handler(invoice_conv)
     
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
@@ -772,17 +787,19 @@ def main():
     
     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
-    # 🆕 CallbackQuery handlers برای سیستم Wallet
+    # 🆕 CallbackQuery handlers برای سیستم Wallet V2
     from handlers.wallet_system import (
-        view_wallet, view_wallet_history, use_wallet_in_order,
-        admin_wallet_menu, admin_wallet_report
+        view_wallet, view_wallet_history, view_wallet_gifts, use_wallet_in_order,
+        admin_wallet_menu, admin_wallet_report, admin_wallet_cleanup
     )
     
     application.add_handler(CallbackQueryHandler(view_wallet, pattern="^wallet:view$"))
     application.add_handler(CallbackQueryHandler(view_wallet_history, pattern="^wallet:history$"))
+    application.add_handler(CallbackQueryHandler(view_wallet_gifts, pattern="^wallet:gifts$"))
     application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
     application.add_handler(CallbackQueryHandler(admin_wallet_menu, pattern="^wallet_admin:menu$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_report, pattern="^wallet_admin:report$"))
+    application.add_handler(CallbackQueryHandler(admin_wallet_cleanup, pattern="^wallet_admin:cleanup$"))
     
     # 🆕 CallbackQuery handlers برای سیستم فاکتورزنی
     from handlers.admin_invoice import (

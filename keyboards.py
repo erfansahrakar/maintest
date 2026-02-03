@@ -98,6 +98,7 @@ def cart_keyboard(cart_items):
     
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
     keyboard.append([InlineKeyboardButton("💰 مشاهده اعتبار من", callback_data="wallet:view:cart")])
+    keyboard.append([InlineKeyboardButton("💳 استفاده از اعتبار", callback_data="wallet:use_credit")])
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     

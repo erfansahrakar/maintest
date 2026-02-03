@@ -702,3 +702,57 @@ async def wallet_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         from keyboards import user_main_keyboard
         await query.message.delete()
 
+
+async def use_credit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """استفاده از اعتبار در سبد خرید"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    db = context.bot_data['db']
+    
+    # دریافت سبد خرید
+    cart = db.get_cart(user_id)
+    if not cart:
+        await query.edit_message_text("سبد خرید شما خالی است!")
+        return
+    
+    # محاسبه مجموع سبد
+    total_price = 0
+    for item in cart:
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
+        total_price += item_total
+    
+    # دریافت اعتبار
+    permanent_balance = db.get_permanent_wallet(user_id)
+    temp_wallets = db.get_active_temp_wallets(user_id)
+    total_temp = sum([w[1] for w in temp_wallets])
+    total_credit = permanent_balance + total_temp
+    
+    if total_credit == 0:
+        await query.answer("⚠️ شما اعتباری ندارید!", show_alert=True)
+        return
+    
+    # محاسبه مقدار قابل استفاده
+    usable_credit = min(total_credit, total_price)
+    
+    # ذخیره در context
+    context.user_data['applied_credit'] = usable_credit
+    context.user_data['credit_discount_amount'] = usable_credit
+    
+    text = f"💳 **استفاده از اعتبار**\n\n"
+    text += f"💰 اعتبار شما: {format_price(total_credit)} تومان\n"
+    text += f"🛒 مجموع سبد: {format_price(total_price)} تومان\n\n"
+    text += f"✅ مقدار استفاده شده: {format_price(usable_credit)} تومان\n"
+    text += f"💳 مبلغ قابل پرداخت: {format_price(total_price - usable_credit)} تومان\n\n"
+    text += "💡 اعتبار شما در هنگام نهایی کردن سفارش کسر می‌شود."
+    
+    from keyboards import cart_keyboard
+    await query.edit_message_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=cart_keyboard(cart)
+    )
+

@@ -805,7 +805,11 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         discount_code = context.user_data.get('applied_discount_code')
         discount_amount = context.user_data.get('discount_amount', 0)
-        final_price = total_price - discount_amount
+        credit_amount = context.user_data.get('credit_discount_amount', 0)
+        
+        # کل تخفیف = تخفیف کد + اعتبار
+        total_discount = discount_amount + credit_amount
+        final_price = total_price - total_discount
         
         try:
             # ✅ FIX: استفاده از Transaction برای atomicity
@@ -816,7 +820,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
                 """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                      discount_amount, final_price, discount_code))
+                      total_discount, final_price, discount_code))
                 order_id = cursor.lastrowid
                 
                 # 2. ثبت استفاده از تخفیف (اگر وجود داشت)
@@ -834,6 +838,10 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # 3. خالی کردن سبد خرید
                 cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+                
+                # 4. کسر اعتبار (اگر استفاده شده)
+                if credit_amount > 0:
+                    db.deduct_wallet(user_id, credit_amount, cursor=cursor)
             
             # ✅ Transaction موفق بود - حالا می‌تونیم log کنیم
             log_order(order_id, user_id, "pending", final_price)
@@ -841,10 +849,15 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if discount_code:
                 log_discount_usage(user_id, discount_code, discount_amount)
             
+            if credit_amount > 0:
+                logger.info(f"💳 {credit_amount:,.0f} تومان اعتبار از کاربر {user_id} کسر شد")
+            
             # پاکسازی context
             context.user_data.pop('applied_discount_code', None)
             context.user_data.pop('discount_amount', None)
             context.user_data.pop('discount_id', None)
+            context.user_data.pop('credit_discount_amount', None)
+            context.user_data.pop('applied_credit', None)
             
             # Invalidate cache
             db._invalidate_cache(f"cart:{user_id}")
@@ -857,8 +870,12 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             # ارسال به ادمین
-            from handlers.order import send_order_to_admin
-            await send_order_to_admin(context, order_id)
+            try:
+                from handlers.order import send_order_to_admin
+                await send_order_to_admin(context, order_id)
+            except Exception as admin_error:
+                logger.error(f"❌ خطا در ارسال سفارش {order_id} به ادمین: {admin_error}")
+                # نمیخوایم به کاربر بگیم چون سفارش ثبت شده
             
             logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
             
@@ -913,7 +930,9 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
         
         discount_code = context.user_data.get('applied_discount_code')
         discount_amount = context.user_data.get('discount_amount', 0)
-        final_price = total_price - discount_amount
+        credit_amount = context.user_data.get('credit_discount_amount', 0)
+        total_discount = discount_amount + credit_amount
+        final_price = total_price - total_discount
         
         try:
             # ✅ FIX: استفاده از Transaction
@@ -924,7 +943,7 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                     (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
                 """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                      discount_amount, final_price, discount_code))
+                      total_discount, final_price, discount_code))
                 order_id = cursor.lastrowid
                 
                 # 2. ثبت استفاده از تخفیف
@@ -942,6 +961,10 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                 
                 # 3. خالی کردن سبد
                 cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+                
+                # 4. کسر اعتبار
+                if credit_amount > 0:
+                    db.deduct_wallet(user_id, credit_amount, cursor=cursor)
             
             # Transaction موفق - ثبت log
             log_order(order_id, user_id, "pending", final_price)
@@ -949,10 +972,15 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
             if discount_code:
                 log_discount_usage(user_id, discount_code, discount_amount)
             
+            if credit_amount > 0:
+                logger.info(f"💳 {credit_amount:,.0f} تومان اعتبار از کاربر {user_id} کسر شد")
+            
             # پاکسازی
             context.user_data.pop('applied_discount_code', None)
             context.user_data.pop('discount_amount', None)
             context.user_data.pop('discount_id', None)
+            context.user_data.pop('credit_discount_amount', None)
+            context.user_data.pop('applied_credit', None)
             
             db._invalidate_cache(f"cart:{user_id}")
             db._invalidate_cache("stats:")
@@ -962,8 +990,11 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                 reply_markup=user_main_keyboard()
             )
             
-            from handlers.order import send_order_to_admin
-            await send_order_to_admin(context, order_id)
+            try:
+                from handlers.order import send_order_to_admin
+                await send_order_to_admin(context, order_id)
+            except Exception as admin_error:
+                logger.error(f"❌ خطا در ارسال سفارش {order_id} به ادمین: {admin_error}")
             
             logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
             

@@ -82,7 +82,7 @@ async def view_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         nav_buttons.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"users_page:{page + 1}"))
     
     keyboard.append(nav_buttons)
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="dash:users")])
     
     await message_func(
         text,

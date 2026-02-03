@@ -798,6 +798,10 @@ def main():
     application.add_handler(CallbackQueryHandler(view_wallet_gifts, pattern="^wallet:gifts$"))
     application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
     application.add_handler(CallbackQueryHandler(wallet_back_handler, pattern="^wallet:back$"))
+    
+    from handlers.wallet_system import use_credit_handler
+    application.add_handler(CallbackQueryHandler(use_credit_handler, pattern="^wallet:use_credit$"))
+    
     application.add_handler(CallbackQueryHandler(admin_wallet_menu, pattern="^wallet_admin:menu$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_report, pattern="^wallet_admin:report$"))
     application.add_handler(CallbackQueryHandler(admin_wallet_cleanup, pattern="^wallet_admin:cleanup$"))

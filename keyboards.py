@@ -97,7 +97,7 @@ def cart_keyboard(cart_items):
         keyboard.append(row)
     
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
-    keyboard.append([InlineKeyboardButton("💰 مشاهده اعتبار من", callback_data="wallet:view")])
+    keyboard.append([InlineKeyboardButton("💰 مشاهده اعتبار من", callback_data="wallet:view:cart")])
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     
@@ -240,12 +240,17 @@ def shipping_method_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def final_confirmation_keyboard():
+def final_confirmation_keyboard(order_id=None):
     """دکمه‌های تایید نهایی فاکتور"""
-    keyboard = [
-        [InlineKeyboardButton("✅ تایید و ثبت نهایی", callback_data="final_confirm")],
-        [InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="final_edit")]
-    ]
+    keyboard = []
+    
+    # دکمه استفاده از اعتبار (اگر order_id داشته باشیم)
+    if order_id:
+        keyboard.append([InlineKeyboardButton("💰 استفاده از اعتبار", callback_data=f"use_wallet:{order_id}")])
+    
+    keyboard.append([InlineKeyboardButton("✅ تایید و ثبت نهایی", callback_data="final_confirm")])
+    keyboard.append([InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="final_edit")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 

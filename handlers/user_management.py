@@ -39,15 +39,15 @@ async def view_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
     
     users_on_page = all_users[start_idx:end_idx]
     
-    text = f"👥 **لیست کاربران** (صفحه {page + 1} از {total_pages})\n\n"
+    text = f"👥 لیست کاربران (صفحه {page + 1} از {total_pages})\n\n"
     text += f"📊 کل کاربران: {total_users}\n\n"
     text += "━━━━━━━━━━━━━━━━\n\n"
     
     for idx, user in enumerate(users_on_page, start=start_idx + 1):
         user_id, username, first_name, full_name, phone, _, address, shop_name, created_at = user
         
-        text += f"**{idx}. کاربر**\n"
-        text += f"🆔 ID: `{user_id}`\n"
+        text += f"{idx}. کاربر\n"
+        text += f"🆔 ID: {user_id}\n"
         text += f"👤 نام: {first_name or 'نامشخص'}\n"
         
         if full_name:
@@ -66,10 +66,6 @@ async def view_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         
         if address:
             text += f"📍 آدرس: {address[:50]}...\n" if len(address) > 50 else f"📍 آدرس: {address}\n"
-        
-        # لینک چت (فقط برای کاربران بدون username)
-        if not username:
-            text += f"💬 [ارسال پیام](tg://user?id={user_id})\n"
         
         text += "\n"
     
@@ -90,7 +86,6 @@ async def view_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
     
     await message_func(
         text,
-        parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True
     )

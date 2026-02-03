@@ -185,7 +185,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message_func(f"📋 شما {len(orders)} سفارش دارید:")
     
     for order in orders:
-        order_id, user_id_val, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+        db_order_id, user_id_val, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         
         # بررسی منقضی بودن
@@ -193,7 +193,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         actual_status = OrderStatus.EXPIRED if expired and status not in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED] else status
         
         # ساخت متن
-        text = f"📋 سفارش #{order_id}\n\n"
+        text = f"📋 سفارش #{db_order_id}\n\n"
         text += f"📅 تاریخ: {format_jalali_datetime(created_at)}\n"
         
         # نمایش تاریخ انقضا
@@ -224,7 +224,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             text += f"📦 نحوه ارسال: {shipping_names.get(shipping_method, shipping_method)}\n"
         
-        keyboard = create_order_action_keyboard(order_id, actual_status, expired)
+        keyboard = create_order_action_keyboard(db_order_id, actual_status, expired)
         
         await message_func(text, reply_markup=keyboard)
 

@@ -53,7 +53,6 @@ def get_admin_wallet_keyboard():
         [InlineKeyboardButton("🔙 بازگشت به منوی ادمین", callback_data="admin_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
-
 # ==================== توابع کاربر ====================
 
 async def view_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -757,3 +756,14 @@ async def use_credit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=cart_keyboard(cart)
     )
 
+
+async def admin_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """بازگشت از منوی wallet به منوی ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    from keyboards import admin_main_keyboard
+    from handlers.admin import admin_start
+    
+    await query.message.delete()
+    await admin_start(update, context)

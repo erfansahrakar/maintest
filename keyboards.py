@@ -245,10 +245,6 @@ def final_confirmation_keyboard(order_id=None):
     """دکمه‌های تایید نهایی فاکتور"""
     keyboard = []
     
-    # دکمه استفاده از اعتبار (اگر order_id داشته باشیم)
-    if order_id:
-        keyboard.append([InlineKeyboardButton("💰 استفاده از اعتبار", callback_data=f"use_wallet:{order_id}")])
-    
     keyboard.append([InlineKeyboardButton("✅ تایید و ثبت نهایی", callback_data="final_confirm")])
     keyboard.append([InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="final_edit")])
     

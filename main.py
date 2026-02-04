@@ -823,7 +823,8 @@ def main():
     # 🆕 CallbackQuery handlers برای سیستم Wallet V2
     from handlers.wallet_system import (
         view_wallet, view_wallet_history, view_wallet_gifts, use_wallet_in_order,
-        admin_wallet_menu, admin_wallet_report, admin_wallet_cleanup, wallet_back_handler
+        admin_wallet_menu, admin_wallet_report, admin_wallet_cleanup, wallet_back_handler,
+        admin_back_handler
     )
     
     application.add_handler(CallbackQueryHandler(view_wallet, pattern="^wallet:view"))
@@ -831,6 +832,7 @@ def main():
     application.add_handler(CallbackQueryHandler(view_wallet_gifts, pattern="^wallet:gifts$"))
     application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
     application.add_handler(CallbackQueryHandler(wallet_back_handler, pattern="^wallet:back$"))
+    application.add_handler(CallbackQueryHandler(admin_back_handler, pattern="^admin_back$"))
     
     from handlers.wallet_system import use_credit_handler
     application.add_handler(CallbackQueryHandler(use_credit_handler, pattern="^wallet:use_credit$"))

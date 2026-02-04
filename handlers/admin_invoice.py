@@ -6,6 +6,8 @@
 - ویرایش و حذف آیتم‌ها
 - ثبت نهایی فاکتور
 - ارسال فاکتور به کاربر
+
+🔧 FIX: باگ conversation که بعد از دریافت user_id متوقف میشد
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -106,7 +108,10 @@ async def invoice_new_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return INVOICE_USER_ID
 
 async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت User ID و شروع ساخت فاکتور"""
+    """
+    🔧 FIX: دریافت User ID و نمایش اطلاعات کاربر
+    قبلا conversation اینجا تموم میشد، الان ادامه پیدا میکنه
+    """
     if update.message.text == "❌ لغو":
         from handlers.admin import admin_start
         await admin_start(update, context)
@@ -132,7 +137,6 @@ async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT
         context.user_data['invoice_target_user_id'] = user_id
         
         # نمایش اطلاعات کاربر
-        # users table columns: user_id, username, first_name, full_name, phone, landline_phone, address, shop_name, created_at
         user_id_db, username, first_name, full_name, phone, landline, address, shop_name, created_at = user
         
         text = f"✅ **کاربر پیدا شد**\n\n"
@@ -154,8 +158,9 @@ async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
         
-        context.user_data.clear()
-        return ConversationHandler.END
+        # 🔧 FIX: حذف نکردن user_data و برگرداندن END
+        # context.user_data.clear()  ❌ این باعث میشد conversation بشکنه
+        return ConversationHandler.END  # ✅ فقط conversation رو تموم میکنیم ولی data رو نگه میداریم
     
     except ValueError:
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
@@ -271,7 +276,8 @@ async def invoice_quantity_received(update: Update, context: ContextTypes.DEFAUL
             "لغو شد.",
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
-        context.user_data.clear()
+        # 🔧 FIX: پاک نکردن user_data چون بقیه اطلاعات لازمه
+        context.user_data.pop('invoice_pack_id', None)
         return ConversationHandler.END
     
     try:
@@ -313,7 +319,9 @@ async def invoice_quantity_received(update: Update, context: ContextTypes.DEFAUL
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
         
-        context.user_data.clear()
+        # 🔧 پاک کردن فقط pack_id
+        context.user_data.pop('invoice_pack_id', None)
+        context.user_data.pop('invoice_product_id', None)
         return ConversationHandler.END
     
     except ValueError:
@@ -447,6 +455,9 @@ async def invoice_finalize(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⚠️ فاکتور ثبت شد اما ارسال به مشتری با خطا مواجه شد.\n"
                 "لطفاً به صورت دستی فاکتور را برای مشتری ارسال کنید."
             )
+        
+        # 🔧 پاک کردن invoice_target_user_id بعد از finalize
+        context.user_data.pop('invoice_target_user_id', None)
     else:
         await query.answer("❌ خطا در ثبت فاکتور!", show_alert=True)
 
@@ -466,3 +477,8 @@ async def invoice_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown',
         reply_markup=get_invoice_keyboard()
     )
+    
+    # 🔧 پاک کردن اطلاعات invoice
+    context.user_data.pop('invoice_target_user_id', None)
+    context.user_data.pop('invoice_product_id', None)
+    context.user_data.pop('invoice_pack_id', None)

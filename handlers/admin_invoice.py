@@ -267,6 +267,7 @@ async def invoice_pack_selected(update: Update, context: ContextTypes.DEFAULT_TY
     
     context.user_data['invoice_target_user_id'] = user_id
     context.user_data['invoice_pack_id'] = pack_id
+    context.user_data['waiting_for_quantity'] = True  # 🔧 FIX: flag for message handler
     
     from keyboards import cancel_keyboard
     
@@ -278,19 +279,23 @@ async def invoice_pack_selected(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=cancel_keyboard()
     )
     
-    return INVOICE_ITEM_QUANTITY
+    # 🔧 FIX: حذف return چون CallbackQuery نمی‌تونه state برگردونه
 
 async def invoice_quantity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت تعداد و افزودن به سبد"""
+    # 🔧 FIX: چک کردن flag
+    if not context.user_data.get('waiting_for_quantity'):
+        return  # این message برای ما نیست
+    
     if update.message.text == "❌ لغو":
         user_id = context.user_data.get('invoice_target_user_id')
+        context.user_data.pop('waiting_for_quantity', None)
         await update.message.reply_text(
             "لغو شد.",
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
-        # 🔧 FIX: پاک نکردن user_data چون بقیه اطلاعات لازمه
         context.user_data.pop('invoice_pack_id', None)
-        return ConversationHandler.END
+        return
     
     try:
         quantity = int(update.message.text)
@@ -331,14 +336,13 @@ async def invoice_quantity_received(update: Update, context: ContextTypes.DEFAUL
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
         
-        # 🔧 پاک کردن فقط pack_id
+        # 🔧 پاک کردن flag و اطلاعات موقت
+        context.user_data.pop('waiting_for_quantity', None)
         context.user_data.pop('invoice_pack_id', None)
         context.user_data.pop('invoice_product_id', None)
-        return ConversationHandler.END
-    
+        
     except ValueError:
         await update.message.reply_text("❌ لطفاً یک عدد وارد کنید!")
-        return INVOICE_ITEM_QUANTITY
 
 async def invoice_view_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش پیش‌نویس فاکتور"""

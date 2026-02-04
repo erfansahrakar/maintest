@@ -467,7 +467,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         user_id,
         MESSAGES["order_rejected"],
-        parse_markup=user_main_keyboard(),
+        reply_markup=user_main_keyboard(),
         parse_mode=None
     )
     

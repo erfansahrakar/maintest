@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 import time
-from datetime import time as datetime_time, datetime
+from datetime import time as datetime_time, datetime  # ✅ اضافه شدن datetime
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -104,6 +104,9 @@ async def handle_text_messages(update: Update, context):
     from handlers.wallet_system import admin_wallet_menu, view_wallet
     from handlers.admin_invoice import admin_invoice_menu
     
+    # 🆕 ایمپورت تابع کمپین
+    from handlers.credit_campaign import campaign_menu
+    
     # دستورات ادمین
     if user_id == ADMIN_ID:
         if text == "➕ افزودن محصول":
@@ -146,6 +149,8 @@ async def handle_text_messages(update: Update, context):
             return await admin_invoice_menu(update, context)
         elif text == "🏦 مدیریت اعتبار":
             return await admin_wallet_menu(update, context)
+        elif text == "🎯 کمپین اعتباری":
+            return await campaign_menu(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
@@ -200,82 +205,289 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = f"❌ خطا در پاکسازی:\n{report.get('error', 'خطای نامشخص')}"
         
         await update.message.reply_text(message, parse_mode='Markdown')
-    
+        
     except Exception as e:
-        logger.error(f"خطا در پاکسازی دستی: {e}")
-        await update.message.reply_text(
-            f"❌ خطا در پاکسازی:\n{str(e)}"
-        )
+        logger.error(f"❌ خطا در پاکسازی دستی: {e}")
+        await update.message.reply_text(f"❌ خطا رخ داد: {str(e)}")
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+async def scheduled_cleanup(context: ContextTypes.DEFAULT_TYPE):
+    """🆕 پاکسازی زمان‌بندی شده (خودکار)"""
+    try:
+        logger.info("🧹 شروع پاکسازی خودکار...")
+        
+        db = context.bot_data['db']
+        report = db.cleanup_old_orders(days_old=7)
+        
+        if report['success'] and report['deleted_count'] > 0:
+            # ارسال گزارش به ادمین
+            message = (
+                "🤖 **گزارش پاکسازی خودکار**\n\n"
+                f"🗑 تعداد حذف شده: {report['deleted_count']} سفارش\n"
+                f"📅 سفارشات قدیمی‌تر از: {report['days_old']} روز\n"
+                f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"✅ پاکسازی با موفقیت انجام شد."
+            )
+            
+            await context.bot.send_message(
+                ADMIN_ID,
+                message,
+                parse_mode='Markdown'
+            )
+            
+            logger.info(f"✅ پاکسازی خودکار موفق: {report['deleted_count']} سفارش حذف شد")
+        else:
+            logger.info("ℹ️ هیچ سفارش قدیمی برای حذف وجود نداشت")
+            
+    except Exception as e:
+        logger.error(f"❌ خطا در پاکسازی خودکار: {e}")
+        
+        # اطلاع به ادمین در صورت خطا
+        try:
+            await context.bot.send_message(
+                ADMIN_ID,
+                f"⚠️ خطا در پاکسازی خودکار:\n{str(e)}"
+            )
+        except:
+            pass
+
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت خطاها"""
-    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+    error = context.error
+    
+    enhanced_error_handler = context.bot_data.get('error_handler')
+    
+    if enhanced_error_handler:
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        try:
+            await enhanced_error_handler.handle_error(
+                error=error,
+                context=context,
+                user_id=user_id,
+                extra_info={'update_type': type(update).__name__ if update else 'None'}
+            )
+        except Exception as e:
+            logger.error(f"❌ Error in error handler: {e}", exc_info=True)
+    else:
+        logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
+        
+        if update and update.effective_user:
+            try:
+                await context.bot.send_message(
+                    update.effective_user.id,
+                    "❌ متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید."
+                )
+            except:
+                pass
+
+
+async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """بررسی محدودیت سراسری"""
+    if not update.effective_user:
+        return
+    
+    user_id = update.effective_user.id
+    
+    if user_id == ADMIN_ID:
+        return
+    
+    # ✅ FIX: حالا 3 تا مقدار برمیگردونه
+    allowed, remaining_time, show_alert = rate_limiter.check_rate_limit(
+        user_id,
+        max_requests=20,
+        window_seconds=60
+    )
+    
+    if not allowed:
+        # ✅ فقط اگه show_alert=True باشه، پیام بده
+        if not show_alert:
+            return  # Silent mode
+        
+        minutes = remaining_time // 60
+        seconds = remaining_time % 60
+        
+        if minutes > 0:
+            wait_msg = f"{minutes} دقیقه و {seconds} ثانیه"
+        else:
+            wait_msg = f"{seconds} ثانیه"
+        
+        try:
+            if update.message:
+                await update.message.reply_text(
+                    f"🛑 **محدودیت درخواست!**\n\n"
+                    f"⏰ لطفاً {wait_msg} صبر کنید.\n\n"
+                    f"💡 محدودیت: 20 درخواست در دقیقه",
+                    parse_mode='Markdown'
+                )
+            elif update.callback_query:
+                await update.callback_query.answer(
+                    f"⚠️ لطفاً {wait_msg} صبر کنید",
+                    show_alert=True
+                )
+        except Exception as e:
+            logger.error(f"❌ Rate limit error: {e}")
+        
+        return
+
+
+def setup_signal_handlers(application, db):
+    """تنظیم signal handlers برای Graceful Shutdown"""
+    def signal_handler(sig, frame):
+        logger.info(f"🛑 Received signal {sig}, shutting down gracefully...")
+        
+        try:
+            if db:
+                db.close()
+                logger.info("✅ Database closed successfully")
+        except Exception as e:
+            logger.error(f"❌ Error closing database: {e}")
+        
+        log_shutdown()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    logger.info("✅ Signal handlers registered")
 
 
 def main():
-    """تابع اصلی برای راه‌اندازی ربات"""
+    """تابع اصلی"""
     log_startup()
     
-    # ایجاد نمونه دیتابیس
+    start_time = time.time()
+    
+    # Import توابع
+    from handlers.admin import (
+        add_product_start, product_name_received, product_desc_received,
+        product_photo_received, add_pack_start, pack_name_received,
+        pack_quantity_received, pack_price_received,
+        get_channel_link, delete_product, admin_start
+    )
+    
+    from handlers.admin_extended import (
+        edit_product_menu, edit_product_name_start, edit_product_name_received,
+        edit_product_desc_start, edit_product_desc_received,
+        edit_product_photo_start, edit_product_photo_received,
+        view_packs_with_edit, edit_pack_start, edit_pack_name_received,
+        edit_pack_quantity_received, edit_pack_price_received,
+        delete_pack_confirm, edit_in_channel, back_to_product
+    )
+    
+    from handlers.admin_pack_management import (
+        manage_packs_menu,
+        confirm_delete_pack,
+        delete_pack_final
+    )
+    
+    from handlers.user import (
+        finalize_order_start, full_name_received, address_text_received, 
+        phone_number_received, use_old_address,
+        use_new_address, handle_pack_selection, view_cart,
+        remove_from_cart, clear_cart, handle_shipping_selection,
+        final_confirm_order, final_edit_order, edit_address,
+        back_to_packs, user_start, confirm_user_info, edit_user_info_for_order,
+        cart_increase, cart_decrease
+    )
+    
+    from handlers.user_discount import (
+        apply_discount_start,
+        discount_code_entered
+    )
+    
+    from handlers.order import (
+        confirm_order, reject_order, confirm_payment, reject_payment,
+        remove_item_from_order, reject_full_order, back_to_order_review,
+        confirm_modified_order,
+        handle_continue_payment,
+        handle_delete_order
+    )
+    
+    from handlers.order_management import (
+        increase_item_quantity,
+        decrease_item_quantity,
+        edit_item_quantity_start,
+        edit_item_quantity_received,
+        edit_item_notes_received,
+        skip_item_notes,
+        cancel_item_edit,
+        EDIT_ITEM_NOTES
+    )
+    
+    from handlers.discount import (
+        create_discount_start, discount_code_received, discount_type_selected,
+        discount_value_received, discount_min_purchase_received,
+        discount_max_received, discount_limit_received,
+        discount_per_user_limit_received,
+        discount_start_received, discount_end_received,
+        list_discounts, view_discount, toggle_discount, delete_discount
+    )
+    
+    from handlers.broadcast import (
+        broadcast_start, broadcast_message_received, 
+        confirm_broadcast, cancel_broadcast
+    )
+    
+    from handlers.analytics import handle_analytics_report, scheduled_stats_update
+    
+    # ایجاد دیتابیس
     db = Database()
     
-    # ایجاد Application
-    application = Application.builder().token(BOT_TOKEN).build()
+    db_cache = DatabaseCache(db, cache_manager)
+    health_checker = HealthChecker(db, start_time)
+    enhanced_error_handler = EnhancedErrorHandler(health_checker)
     
-    # ذخیره دیتابیس در bot_data
+    # ساخت اپلیکیشن
+    try:
+        application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .job_queue(JobQueue())
+            .build()
+        )
+        logger.info("✅ Application با JobQueue ساخته شد")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در ساخت JobQueue: {e}")
+        application = Application.builder().token(BOT_TOKEN).build()
+    
+    # ذخیره در bot_data
     application.bot_data['db'] = db
+    application.bot_data['db_cache'] = db_cache
+    application.bot_data['cache_manager'] = cache_manager
+    application.bot_data['health_checker'] = health_checker
+    application.bot_data['error_handler'] = enhanced_error_handler
     
-    # 🆕 راه‌اندازی Health Checker
+    setup_signal_handlers(application, db)
+    
+    # اضافه کردن Global Rate Limiter
+    application.add_handler(
+        TypeHandler(Update, global_rate_limit_check),
+        group=-1
+    )
+    logger.info("✅ Global rate limiter فعال شد")
+    
+    # راه‌اندازی بکاپ خودکار
+    from backup_scheduler import setup_backup_job, setup_backup_folder
+    setup_backup_folder()
+    
     try:
-        health_checker = HealthChecker(
-            bot=application.bot,
-            admin_id=ADMIN_ID,
-            db=db
-        )
-        
-        if application.job_queue:
-            application.job_queue.run_repeating(
-                health_checker.scheduled_health_check,
-                interval=300,  # هر 5 دقیقه
-                first=10
-            )
-            logger.info("✅ Health Checker فعال شد (هر 5 دقیقه)")
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            setup_backup_job(application)
+            logger.info("✅ بکاپ خودکار روزانه فعال شد")
         else:
-            logger.warning("⚠️ JobQueue در دسترس نیست - Health Checker غیرفعال است")
+            logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
     except Exception as e:
-        logger.warning(f"⚠️ خطا در راه‌اندازی Health Checker: {e}")
+        logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
     
-    # 🆕 راه‌اندازی Enhanced Error Handler
+    # 🆕 راه‌اندازی پاکسازی خودکار روزانه (هر روز ساعت 3:30 صبح)
     try:
-        error_handler_instance = EnhancedErrorHandler(
-            bot=application.bot,
-            admin_id=ADMIN_ID,
-            db=db
-        )
-        application.bot_data['error_handler'] = error_handler_instance
-        logger.info("✅ Enhanced Error Handler فعال شد")
-    except Exception as e:
-        logger.warning(f"⚠️ خطا در راه‌اندازی Error Handler: {e}")
-    
-    # 🆕 راه‌اندازی Cache Manager
-    try:
-        db_cache = DatabaseCache(db)
-        application.bot_data['cache'] = db_cache
-        logger.info("✅ Cache Manager فعال شد")
-    except Exception as e:
-        logger.warning(f"⚠️ خطا در راه‌اندازی Cache: {e}")
-    
-    # 🆕 راه‌اندازی پاکسازی خودکار روزانه
-    try:
-        from cleanup_scheduler import daily_cleanup_job
-        
-        if application.job_queue:
-            # اجرای روزانه در ساعت 3:30 صبح (به وقت تهران)
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
             application.job_queue.run_daily(
-                daily_cleanup_job,
+                scheduled_cleanup,
                 time=datetime_time(hour=3, minute=30),
-                data={'db': db}
+                name="cleanup_old_orders"
             )
             logger.info("✅ پاکسازی خودکار روزانه فعال شد (ساعت 3:30 صبح)")
         else:
@@ -283,70 +495,20 @@ def main():
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی پاکسازی خودکار: {e}")
     
-    # 🆕 راه‌اندازی به‌روزرسانی دوره‌ای آمار
+    # ✅ راه‌اندازی به‌روزرسانی دوره‌ای آمار (هر ساعت)
     try:
-        from handlers.analytics import update_product_stats
-        
-        if application.job_queue:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
             application.job_queue.run_repeating(
-                update_product_stats,
-                interval=3600,  # هر 1 ساعت
-                first=60,
-                data={'db': db}
+                scheduled_stats_update,
+                interval=3600,  # هر 3600 ثانیه = 1 ساعت
+                first=10,  # اولین بار بعد 10 ثانیه اجرا شه
+                name="stats_update"
             )
             logger.info("✅ به‌روزرسانی دوره‌ای آمار فعال شد (هر 1 ساعت)")
         else:
             logger.warning("⚠️ JobQueue در دسترس نیست - به‌روزرسانی آمار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی به‌روزرسانی آمار: {e}")
-    
-    # ==================== ایمپورت Handler ها ====================
-    
-    from handlers.admin import (
-        add_product_start, product_name_received, product_desc_received, product_photo_received,
-        add_pack_start, pack_name_received, pack_quantity_received, pack_price_received,
-        admin_start, edit_product_menu, view_packs_with_edit, get_channel_link, edit_in_channel,
-        delete_product, back_to_product, manage_packs_menu, delete_pack_confirm,
-        confirm_delete_pack, delete_pack_final,
-        edit_product_name_start, edit_product_name_received,
-        edit_product_desc_start, edit_product_desc_received,
-        edit_product_photo_start, edit_product_photo_received,
-        edit_pack_start, edit_pack_name_received, edit_pack_quantity_received, edit_pack_price_received,
-        product_list_all, product_list_search, product_search_received, PRODUCT_SEARCH
-    )
-    
-    from handlers.user import (
-        user_start, handle_pack_selection, back_to_packs, view_cart, remove_from_cart,
-        clear_cart, cart_increase, cart_decrease,
-        finalize_order_start, full_name_received, address_text_received, phone_number_received,
-        handle_shipping_selection, final_confirm_order, use_old_address, use_new_address,
-        confirm_user_info, edit_address, edit_user_info_for_order, final_edit_order
-    )
-    
-    from handlers.order import (
-        confirm_order, reject_order, remove_item_from_order, reject_full_order,
-        back_to_order_review, confirm_modified_order, increase_item_quantity, decrease_item_quantity,
-        confirm_payment, reject_payment, handle_continue_payment, handle_delete_order
-    )
-    
-    from handlers.discount import (
-        create_discount_start, discount_code_received, discount_type_selected, discount_value_received,
-        discount_min_purchase_received, discount_max_received, discount_limit_received,
-        discount_per_user_limit_received, discount_start_received, discount_end_received,
-        list_discounts, view_discount, toggle_discount, delete_discount,
-        apply_discount_start, discount_code_entered
-    )
-    
-    from handlers.broadcast import (
-        broadcast_start, broadcast_message_received, confirm_broadcast, cancel_broadcast
-    )
-    
-    from handlers.analytics import handle_analytics_report
-    
-    from handlers.order_management import (
-        edit_item_quantity_start, edit_item_quantity_received,
-        edit_item_notes_received, skip_item_notes, cancel_item_edit
-    )
     
     # ==================== ConversationHandler ها ====================
     
@@ -371,6 +533,8 @@ def main():
     )
     
     # ✅ جستجوی محصول خاص ادمین
+    from handlers.admin import product_list_all, product_list_search, product_search_received, PRODUCT_SEARCH
+    
     product_search_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(product_list_search, pattern="^product_list:search$")],
         states={
@@ -546,9 +710,7 @@ def main():
     
     # 🆕 ConversationHandler سیستم کمپین اعتباری
     from handlers.credit_campaign import (
-        campaign_menu, campaign_new_start,
-        campaign_start_date_received, campaign_end_date_received,
-        campaign_min_amount_received, campaign_max_amount_received,
+        campaign_new_start, campaign_min_purchase_received, 
         campaign_credit_percent_received, campaign_credit_expiry_received,
         campaign_confirm, campaign_cancel
     )
@@ -556,10 +718,7 @@ def main():
     campaign_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(campaign_new_start, pattern="^campaign:new$")],
         states={
-            CAMPAIGN_START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_start_date_received)],
-            CAMPAIGN_END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_end_date_received)],
-            CAMPAIGN_MIN_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_min_amount_received)],
-            CAMPAIGN_MAX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_max_amount_received)],
+            CAMPAIGN_MIN_PURCHASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_min_purchase_received)],
             CAMPAIGN_CREDIT_PERCENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_credit_percent_received)],
             CAMPAIGN_CREDIT_EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_credit_expiry_received)],
             CAMPAIGN_CONFIRM: [
@@ -693,6 +852,7 @@ def main():
     application.add_handler(CallbackQueryHandler(invoice_cancel, pattern="^invoice_cancel:"))
     
     # 🆕 CallbackQuery handlers برای کمپین اعتباری
+    from handlers.credit_campaign import campaign_menu
     application.add_handler(CallbackQueryHandler(campaign_menu, pattern="^campaign:menu$"))
     
     # Message هندلرها

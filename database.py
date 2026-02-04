@@ -1475,6 +1475,61 @@ class Database:
         """برای backward compatibility"""
         return self._get_conn()
     
+    def add_wallet_credit(self, user_id: int, amount: float, expiry_date: datetime = None, credit_type: str = 'manual') -> bool:
+        """
+        افزودن اعتبار به کیف پول کاربر
+        
+        Args:
+            user_id: شناسه کاربر
+            amount: مقدار اعتبار
+            expiry_date: تاریخ انقضا (None = دائمی)
+            credit_type: نوع اعتبار (manual, campaign, gift, etc.)
+        
+        Returns:
+            True در صورت موفقیت، False در صورت خطا
+        """
+        try:
+            if expiry_date:
+                # اعتبار موقت
+                description = f"اعتبار {credit_type}"
+                return self.add_temp_wallet(
+                    user_id=user_id,
+                    amount=amount,
+                    expires_at=expiry_date,
+                    description=description
+                )
+            else:
+                # اعتبار دائمی
+                description = f"اعتبار {credit_type}"
+                return self.add_permanent_wallet(
+                    user_id=user_id,
+                    amount=amount,
+                    description=description
+                )
+        except Exception as e:
+            logger.error(f"خطا در add_wallet_credit برای کاربر {user_id}: {e}")
+            return False
+    
+    def get_wallet_balance(self, user_id: int) -> float:
+        """
+        دریافت موجودی کل کیف پول کاربر (دائمی + موقت)
+        
+        Args:
+            user_id: شناسه کاربر
+        
+        Returns:
+            موجودی کل
+        """
+        try:
+            permanent = self.get_permanent_wallet(user_id)
+            temp_wallets = self.get_active_temp_wallets(user_id)
+            temp_total = sum(w['balance'] for w in temp_wallets)
+            
+            return permanent + temp_total
+        except Exception as e:
+            logger.error(f"خطا در get_wallet_balance برای کاربر {user_id}: {e}")
+            return 0.0
+    
     def close(self):
         try:
             if hasattr(self, 'pool') and self.pool:

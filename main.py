@@ -1,6 +1,5 @@
 """
 ربات فروشگاه مانتو تلگرام
-🔧 نسخه 2.0 - با سیستم کمپین اعتباری و فیکس باگ فاکتورزنی
 """
 import logging
 import signal
@@ -710,15 +709,21 @@ def main():
     
     # 🆕 ConversationHandler سیستم کمپین اعتباری
     from handlers.credit_campaign import (
-        campaign_new_start, campaign_min_purchase_received, 
+        campaign_new_start, campaign_start_date_received, campaign_end_date_received,
+        campaign_min_amount_received, campaign_max_amount_received,
         campaign_credit_percent_received, campaign_credit_expiry_received,
-        campaign_confirm, campaign_cancel
+        campaign_confirm, campaign_cancel,
+        CAMPAIGN_START_DATE, CAMPAIGN_END_DATE, CAMPAIGN_MIN_AMOUNT,
+        CAMPAIGN_MAX_AMOUNT, CAMPAIGN_CREDIT_PERCENT, CAMPAIGN_CREDIT_EXPIRY, CAMPAIGN_CONFIRM
     )
     
     campaign_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(campaign_new_start, pattern="^campaign:new$")],
         states={
-            CAMPAIGN_MIN_PURCHASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_min_purchase_received)],
+            CAMPAIGN_START_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_start_date_received)],
+            CAMPAIGN_END_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_end_date_received)],
+            CAMPAIGN_MIN_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_min_amount_received)],
+            CAMPAIGN_MAX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_max_amount_received)],
             CAMPAIGN_CREDIT_PERCENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_credit_percent_received)],
             CAMPAIGN_CREDIT_EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, campaign_credit_expiry_received)],
             CAMPAIGN_CONFIRM: [
@@ -729,8 +734,7 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== اضافه کردن Handler ها ====================
-    
+    # اضافه کردن handler ها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_product_conv)
     application.add_handler(add_pack_conv)
@@ -759,6 +763,7 @@ def main():
     
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
     
+    # CallbackQuery هندلر
     # CallbackQuery هندلرها
     application.add_handler(CallbackQueryHandler(handle_pack_selection, pattern="^select_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_packs, pattern="^back_to_packs:"))
@@ -854,6 +859,7 @@ def main():
     # 🆕 CallbackQuery handlers برای کمپین اعتباری
     from handlers.credit_campaign import campaign_menu
     application.add_handler(CallbackQueryHandler(campaign_menu, pattern="^campaign:menu$"))
+    application.add_handler(CallbackQueryHandler(campaign_menu, pattern="^campaign:list$"))
     
     # Message هندلرها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
@@ -874,7 +880,6 @@ def main():
     logger.info("✅ دکمه پاکسازی دستی برای ادمین فعال")
     logger.info("✅ به‌روزرسانی خودکار آمار محصولات فعال (هر ساعت)")
     logger.info("✅ سیستم کمپین اعتباری فعال")
-    logger.info("✅ فیکس باگ فاکتورزنی")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)

@@ -1,11 +1,12 @@
 """
 ربات فروشگاه مانتو تلگرام
+🔧 نسخه اصلاح شده با Handler های کامل Invoice
 """
 import logging
 import signal
 import sys
 import time
-from datetime import time as datetime_time, datetime  # ✅ اضافه شدن datetime
+from datetime import time as datetime_time, datetime
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -48,8 +49,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-
 async def start(update: Update, context):
     """هندلر دستور /start"""
     # ✅ چک کردن effective_user
@@ -843,20 +842,40 @@ def main():
     
     # 🆕 User management handlers
     from handlers.user_management import view_users_list, handle_users_pagination
+    
+    # 🆕 User management handlers
+    from handlers.user_management import view_users_list, handle_users_pagination
     application.add_handler(CallbackQueryHandler(handle_users_pagination, pattern="^users_page:"))
     
-    # 🆕 CallbackQuery handlers برای سیستم فاکتورزنی
+    # 🆕 CallbackQuery handlers برای سیستم فاکتورزنی - اصلاح شده
     from handlers.admin_invoice import (
         invoice_add_product, invoice_product_selected, invoice_pack_selected,
-        invoice_view_draft, invoice_finalize, invoice_cancel
+        invoice_view_draft, invoice_finalize, invoice_cancel,
+        admin_invoice_menu,
+        invoice_remove_item, invoice_remove_item_confirm,
+        invoice_edit_quantity_menu, invoice_edit_quantity_selected,
+        invoice_increment, invoice_decrement,
+        invoice_discount_menu, invoice_shipping_menu
     )
     
+    # Handler های اصلی فاکتورزنی
+    application.add_handler(CallbackQueryHandler(admin_invoice_menu, pattern="^invoice:menu$"))
     application.add_handler(CallbackQueryHandler(invoice_add_product, pattern="^invoice_add:"))
     application.add_handler(CallbackQueryHandler(invoice_product_selected, pattern="^invoice_prod:"))
     application.add_handler(CallbackQueryHandler(invoice_pack_selected, pattern="^invoice_pack:"))
     application.add_handler(CallbackQueryHandler(invoice_view_draft, pattern="^invoice_view:"))
     application.add_handler(CallbackQueryHandler(invoice_finalize, pattern="^invoice_finalize:"))
     application.add_handler(CallbackQueryHandler(invoice_cancel, pattern="^invoice_cancel:"))
+    
+    # Handler های اضافی برای دکمه‌های مشاهده، حذف، ویرایش و غیره
+    application.add_handler(CallbackQueryHandler(invoice_remove_item, pattern="^invoice_remove:"))
+    application.add_handler(CallbackQueryHandler(invoice_remove_item_confirm, pattern="^invoice_rm_item:"))
+    application.add_handler(CallbackQueryHandler(invoice_edit_quantity_menu, pattern="^invoice_edit:"))
+    application.add_handler(CallbackQueryHandler(invoice_edit_quantity_selected, pattern="^invoice_edit_qty:"))
+    application.add_handler(CallbackQueryHandler(invoice_increment, pattern="^invoice_inc:"))
+    application.add_handler(CallbackQueryHandler(invoice_decrement, pattern="^invoice_dec:"))
+    application.add_handler(CallbackQueryHandler(invoice_discount_menu, pattern="^invoice_discount:"))
+    application.add_handler(CallbackQueryHandler(invoice_shipping_menu, pattern="^invoice_shipping:"))
     
     # 🆕 CallbackQuery handlers برای کمپین اعتباری
     from handlers.credit_campaign import campaign_menu
@@ -879,23 +898,12 @@ def main():
     logger.info("✅ دکمه‌های دینامیک برای سفارشات فعال")
     logger.info("✅ قابلیت حذف سفارش توسط کاربر فعال")
     logger.info("✅ پاکسازی خودکار روزانه فعال (ساعت 3:30 صبح)")
-    logger.info("✅ دکمه پاکسازی دستی برای ادمین فعال")
-    logger.info("✅ به‌روزرسانی خودکار آمار محصولات فعال (هر ساعت)")
-    logger.info("✅ سیستم کمپین اعتباری فعال")
+    logger.info("✅ به‌روزرسانی دوره‌ای آمار فعال (هر ساعت)")
+    logger.info("✅ پشتیبان‌گیری خودکار روزانه فعال (ساعت 3:00 صبح)")
+    logger.info("✅ سیستم فاکتورزنی با تمام قابلیت‌ها فعال")
     
-    try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    except KeyboardInterrupt:
-        logger.info("🛑 Received keyboard interrupt")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}", exc_info=True)
-    finally:
-        try:
-            db.close()
-        except:
-            pass
-        log_shutdown()
-
+    # اجرای ربات
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()

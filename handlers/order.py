@@ -396,7 +396,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         # بررسی منقضی بودن
         expired = is_order_expired(order)
         
-        text = f"📋 سفارش #{order_id}\n\n"
+        text = f"📋 سفارش #{id_col}\n\n"
         text += f"👤 {safe_first_name}"
         if safe_username != "ندارد":
             text += f" (@{safe_username})"
@@ -430,7 +430,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         await update.message.reply_text(
             text,
-            reply_markup=order_confirmation_keyboard(order_id),
+            reply_markup=order_confirmation_keyboard(id_col),
             parse_mode=ParseMode.HTML  # ✅ FIX: HTML به جای Markdown
         )
 
@@ -1038,7 +1038,9 @@ async def view_not_shipped_orders(update: Update, context: ContextTypes.DEFAULT_
     conn = db._get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM orders 
+        SELECT id, user_id, items, total_price, discount_amount, final_price,
+               discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+        FROM orders 
         WHERE status IN ('payment_confirmed', 'confirmed') 
         AND (shipping_method IS NULL OR shipping_method != 'shipped')
         ORDER BY created_at DESC
@@ -1062,7 +1064,7 @@ async def view_not_shipped_orders(update: Update, context: ContextTypes.DEFAULT_
         phone = user[4] if len(user) > 4 and user[4] else "ندارد"
         address = user[6] if len(user) > 6 and user[6] else "ندارد"
         
-        text = f"📋 سفارش #{order_id}\n\n"
+        text = f"📋 سفارش #{id_col}\n\n"
         text += f"👤 {first_name} (@{username})\n"
         text += f"📝 نام: {full_name}\n"
         text += f"📞 موبایل: {phone}\n"
@@ -1097,7 +1099,9 @@ async def view_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
     conn = db._get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM orders 
+        SELECT id, user_id, items, total_price, discount_amount, final_price,
+               discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+        FROM orders 
         WHERE shipping_method = 'shipped'
         ORDER BY created_at DESC
     """)
@@ -1120,7 +1124,7 @@ async def view_shipped_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         phone = user[4] if len(user) > 4 and user[4] else "ندارد"
         address = user[6] if len(user) > 6 and user[6] else "ندارد"
         
-        text = f"✅ سفارش #{order_id} — ارسال شده\n\n"
+        text = f"✅ سفارش #{id_col} — ارسال شده\n\n"
         text += f"👤 {first_name} (@{username})\n"
         text += f"📝 نام: {full_name}\n"
         text += f"📞 موبایل: {phone}\n"

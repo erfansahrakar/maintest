@@ -8,9 +8,11 @@
 - ارسال فاکتور به کاربر
 
 🔧 FIX: باگ conversation که بعد از دریافت user_id متوقف میشد
+🔧 FIX: باگ parse entities برای کاراکترهای خاص
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
+from telegram.helpers import escape_markdown
 from typing import Optional, List
 import logging
 
@@ -32,6 +34,16 @@ INVOICE_FINAL_CONFIRM = 208
 def format_price(price: float) -> str:
     """فرمت کردن قیمت"""
     return f"{price:,.0f}".replace(',', '٬')
+
+def escape_text(text: str) -> str:
+    """Escape کردن کاراکترهای خاص برای Markdown"""
+    if not text:
+        return text
+    # کاراکترهای خاص Markdown را escape میکنیم
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 def get_invoice_keyboard():
     """کیبورد منوی فاکتورزنی"""
@@ -110,7 +122,7 @@ async def invoice_new_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     🔧 FIX: دریافت User ID و نمایش اطلاعات کاربر
-    قبلا conversation اینجا تموم میشد، الان ادامه پیدا میکنه
+    🔧 FIX: حل مشکل parse entities با escape کردن کاراکترهای خاص
     """
     if update.message.text == "❌ لغو":
         from handlers.admin import admin_start
@@ -139,33 +151,33 @@ async def invoice_user_id_received(update: Update, context: ContextTypes.DEFAULT
         # نمایش اطلاعات کاربر
         user_id_db, username, first_name, full_name, phone, landline, address, shop_name, created_at = user
         
-        text = f"✅ **کاربر پیدا شد**\n\n"
-        text += f"👤 نام: {full_name or first_name or 'نامشخص'}\n"
+        # 🔧 FIX: Escape کردن تمام متن‌ها برای جلوگیری از خطای parse
+        text = "✅ **کاربر پیدا شد**\n\n"
+        
+        display_name = full_name or first_name or 'نامشخص'
+        text += f"👤 نام: {escape_text(display_name)}\n"
         
         if shop_name:
-            text += f"🏪 نام فروشگاه: {shop_name}\n"
+            text += f"🏪 نام فروشگاه: {escape_text(shop_name)}\n"
         if phone:
-            text += f"📱 تلفن: {phone}\n"
+            text += f"📱 تلفن: {escape_text(phone)}\n"
         if username:
-            text += f"🆔 Username: @{username}\n"
+            text += f"🆔 Username: @{escape_text(username)}\n"
         
-        text += f"\n📝 فاکتور برای این کاربر ایجاد شد.\n"
+        text += "\n📝 فاکتور برای این کاربر ایجاد شد\\.\n"
         text += "حالا محصولات را اضافه کنید:"
         
         await update.message.reply_text(
             text,
-            parse_mode='Markdown',
+            parse_mode='MarkdownV2',  # استفاده از MarkdownV2 برای پشتیبانی بهتر
             reply_markup=get_invoice_draft_keyboard(user_id)
         )
         
-        # 🔧 FIX: حذف نکردن user_data و برگرداندن END
-        # context.user_data.clear()  ❌ این باعث میشد conversation بشکنه
-        return ConversationHandler.END  # ✅ فقط conversation رو تموم میکنیم ولی data رو نگه میداریم
+        return ConversationHandler.END
     
     except ValueError:
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
         return INVOICE_USER_ID
-
 async def invoice_add_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """افزودن محصول به فاکتور"""
     query = update.callback_query

@@ -494,3 +494,157 @@ async def invoice_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('invoice_target_user_id', None)
     context.user_data.pop('invoice_product_id', None)
     context.user_data.pop('invoice_pack_id', None)
+
+# ==================== توابع اضافی ====================
+
+async def invoice_remove_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حذف آیتم از سبد"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = int(query.data.split(":")[1])
+    db = context.bot_data['db']
+    cart_items = db.get_cart(user_id)
+    
+    if not cart_items:
+        await query.answer("سبد خالی است!", show_alert=True)
+        return
+    
+    text = "🗑 **حذف آیتم**\n\n"
+    text += "کدام آیتم را می‌خواهید حذف کنید؟"
+    
+    keyboard = []
+    for item in cart_items:
+        cart_id, _, _, product_name, pack_name, pack_price, item_qty, _, _ = item
+        keyboard.append([
+            InlineKeyboardButton(
+                f"❌ {product_name} - {pack_name}",
+                callback_data=f"invoice_rm_item:{user_id}:{cart_id}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"invoice_view:{user_id}")])
+    
+    await query.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def invoice_remove_item_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تایید حذف آیتم"""
+    query = update.callback_query
+    await query.answer()
+    
+    data_parts = query.data.split(":")
+    user_id = int(data_parts[1])
+    cart_id = int(data_parts[2])
+    
+    db = context.bot_data['db']
+    db.remove_from_cart(cart_id)
+    
+    await query.answer("✅ آیتم حذف شد", show_alert=True)
+    
+    # بازگشت به پیش‌نویس
+    await invoice_view_draft(update, context)
+
+async def invoice_edit_quantity_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی ویرایش تعداد"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = int(query.data.split(":")[1])
+    db = context.bot_data['db']
+    cart_items = db.get_cart(user_id)
+    
+    if not cart_items:
+        await query.answer("سبد خالی است!", show_alert=True)
+        return
+    
+    text = "✏️ **ویرایش تعداد**\n\n"
+    text += "کدام آیتم را می‌خواهید ویرایش کنید؟"
+    
+    keyboard = []
+    for item in cart_items:
+        cart_id, _, _, product_name, pack_name, pack_price, item_qty, _, _ = item
+        keyboard.append([
+            InlineKeyboardButton(
+                f"✏️ {product_name} - {pack_name} (تعداد: {item_qty})",
+                callback_data=f"invoice_edit_qty:{user_id}:{cart_id}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"invoice_view:{user_id}")])
+    
+    await query.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def invoice_edit_quantity_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """آیتم برای ویرایش انتخاب شد"""
+    query = update.callback_query
+    await query.answer()
+    
+    data_parts = query.data.split(":")
+    user_id = int(data_parts[1])
+    cart_id = int(data_parts[2])
+    
+    context.user_data['invoice_edit_cart_id'] = cart_id
+    context.user_data['invoice_target_user_id'] = user_id
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("➕", callback_data=f"invoice_inc:{cart_id}"),
+            InlineKeyboardButton("➖", callback_data=f"invoice_dec:{cart_id}")
+        ],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"invoice_view:{user_id}")]
+    ]
+    
+    await query.message.reply_text(
+        "✏️ تعداد را تغییر دهید:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def invoice_increment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزایش تعداد"""
+    query = update.callback_query
+    cart_id = int(query.data.split(":")[1])
+    
+    db = context.bot_data['db']
+    db.update_cart_quantity(cart_id, increment=1)
+    
+    await query.answer("✅ تعداد افزایش یافت")
+    user_id = context.user_data.get('invoice_target_user_id')
+    
+    # بازگشت به پیش‌نویس
+    await invoice_view_draft(update, context)
+
+async def invoice_decrement(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """کاهش تعداد"""
+    query = update.callback_query
+    cart_id = int(query.data.split(":")[1])
+    
+    db = context.bot_data['db']
+    
+    # چک کردن که تعداد از 1 کمتر نشود
+    cart_item = db.get_cart_item(cart_id)
+    if cart_item and cart_item[6] > 1:  # item_qty
+        db.update_cart_quantity(cart_id, increment=-1)
+        await query.answer("✅ تعداد کاهش یافت")
+    else:
+        await query.answer("❌ حداقل تعداد 1 است", show_alert=True)
+    
+    # بازگشت به پیش‌نویس
+    await invoice_view_draft(update, context)
+
+async def invoice_discount_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی تخفیف"""
+    query = update.callback_query
+    await query.answer("⚠️ این قابلیت هنوز پیاده‌سازی نشده است", show_alert=True)
+
+async def invoice_shipping_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی انتخاب نوع ارسال"""
+    query = update.callback_query
+    await query.answer("⚠️ این قابلیت هنوز پیاده‌سازی نشده است", show_alert=True)

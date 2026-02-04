@@ -74,6 +74,12 @@ async def handle_text_messages(update: Update, context):
         logger.warning("⚠️ handle_text_messages called without effective_user or message")
         return
     
+    # 🔧 FIX: چک کردن اگر منتظر دریافت تعداد برای فاکتورزنی هستیم
+    if context.user_data.get('waiting_for_quantity'):
+        from handlers.admin_invoice import invoice_quantity_received
+        await invoice_quantity_received(update, context)
+        return
+    
     # ✅ اگر کاربر داخل یک conversation هست، این handler نباید اجرا بشه
     # چون ConversationHandler باید پیام رو مدیریت کنه
     if context.user_data and any(key in context.user_data for key in [

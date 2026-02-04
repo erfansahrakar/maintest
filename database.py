@@ -688,7 +688,12 @@ class Database:
     def get_order(self, order_id: int):
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+        cursor.execute("""
+            SELECT id, user_id, items, total_price, discount_amount, final_price,
+                   discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+            FROM orders 
+            WHERE id = ?
+        """, (order_id,))
         return cursor.fetchone()
     
     def update_order_status(self, order_id: int, status: str):
@@ -708,13 +713,25 @@ class Database:
     def get_pending_orders(self):
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT id, user_id, items, total_price, discount_amount, final_price, 
+                   discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+            FROM orders 
+            WHERE status = 'pending' 
+            ORDER BY created_at DESC
+        """)
         return cursor.fetchall()
     
     def get_waiting_payment_orders(self):
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orders WHERE status = 'waiting_payment' ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT id, user_id, items, total_price, discount_amount, final_price,
+                   discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+            FROM orders 
+            WHERE status = 'waiting_payment' 
+            ORDER BY created_at DESC
+        """)
         return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
@@ -723,7 +740,9 @@ class Database:
         cursor = conn.cursor()
     
         cursor.execute("""
-            SELECT * FROM orders 
+            SELECT id, user_id, items, total_price, discount_amount, final_price,
+                   discount_code, status, receipt_photo, shipping_method, created_at, expires_at
+            FROM orders 
             WHERE user_id = ? 
             AND status != 'rejected'
             AND (

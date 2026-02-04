@@ -46,6 +46,7 @@ def get_admin_wallet_keyboard():
     keyboard = [
         [InlineKeyboardButton("💳 شارژ اعتبار دائمی", callback_data="wallet_admin:charge_permanent")],
         [InlineKeyboardButton("🎁 اعتبار هدیه موقت", callback_data="wallet_admin:gift_temp")],
+        [InlineKeyboardButton("🎪 کمپین اعتباری", callback_data="campaign:menu")],
         [InlineKeyboardButton("💎 تنظیم کش‌بک", callback_data="wallet_admin:cashback")],
         [InlineKeyboardButton("📊 گزارش اعتبارها", callback_data="wallet_admin:report")],
         [InlineKeyboardButton("🧹 پاکسازی منقضی‌ها", callback_data="wallet_admin:cleanup")],

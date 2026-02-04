@@ -678,22 +678,6 @@ async def wallet_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         text = "🛒 سبد خرید شما:\n\n"
         total_price = 0
-
-async def admin_back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بازگشت به منوی ادمین"""
-    query = update.callback_query
-    await query.answer()
-    
-    from handlers.admin import admin_start
-    
-    # پاک کردن پیام قبلی
-    try:
-        await query.message.delete()
-    except:
-        pass
-    
-    # نمایش منوی ادمین
-    await admin_start(update, context)
         
         for item in cart:
             cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
